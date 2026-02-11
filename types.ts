@@ -49,6 +49,33 @@ export interface SectionSuggestion {
   suggestedText: string;
 }
 
+// Tài liệu tham khảo do người dùng upload
+export interface ReferenceDocument {
+  id: string;
+  name: string;
+  content: string; // nội dung text đã extract
+  type: 'document' | 'exercise'; // tài liệu hay bài tập
+}
+
+// Yêu cầu người dùng cho việc sửa SKKN
+export interface UserRequirements {
+  pageLimit: number | null;       // giới hạn số trang (null = không giới hạn)
+  referenceDocuments: ReferenceDocument[]; // tài liệu tham khảo
+  customInstructions: string;     // yêu cầu đặc biệt khác
+}
+
+// Kết quả phân tích chi tiết một section — đề xuất sửa cụ thể
+export interface SectionEditSuggestion {
+  id: string;
+  action: 'replace' | 'add' | 'remove' | 'modify';
+  label: string;           // tóm tắt ngắn
+  description: string;     // giải thích chi tiết
+  originalText: string;    // đoạn gốc cần sửa (nếu replace/remove/modify)
+  suggestedText: string;   // đoạn thay thế (nếu replace/add/modify)
+  category: 'content' | 'example' | 'structure' | 'language' | 'reference';
+  applied: boolean;        // đã áp dụng chưa
+}
+
 export interface SectionContent {
   id: string;
   title: string;
@@ -58,6 +85,7 @@ export interface SectionContent {
   refinedContent: string;
   isProcessing: boolean;
   suggestions: SectionSuggestion[];
+  editSuggestions: SectionEditSuggestion[];
 }
 
 export interface SKKNData {

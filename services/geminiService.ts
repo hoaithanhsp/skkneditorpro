@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisMetrics, TitleSuggestion, SectionSuggestion, AI_MODELS, AIModelId } from "../types";
+import { AnalysisMetrics, TitleSuggestion, SectionSuggestion, SectionEditSuggestion, UserRequirements, AI_MODELS, AIModelId } from "../types";
 import { buildKnowledgeContext, SCORING_CRITERIA, CLICHE_PHRASES, COMPARISON_TABLE_TEMPLATE } from "../knowledge-base";
 
 // --- API Key & Model Management ---
@@ -373,6 +373,222 @@ ${COMPARISON_TABLE_TEMPLATE}
     "${originalContent}"
     
     Trả về nội dung đã sửa. Định dạng đẹp, chuẩn. Bảng biểu dùng markdown table. Công thức toán viết dạng LaTeX.
+  `;
+
+  return callWithFallback(async (model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+    });
+    return response.text || "";
+  });
+};
+
+// =====================================================
+// HƯỚNG DẪN GIỌNG VĂN TỰ NHIÊN (từ file gợi ý)
+// =====================================================
+const NATURAL_WRITING_GUIDE = `
+## QUY TẮC VIẾT GIỌNG VĂN TỰ NHIÊN - TRÁNH ĐẠO VĂN:
+
+1. KHOA HỌC VỀ CẤU TRÚC, CÁ NHÂN VỀ NỘI DUNG:
+   - Giữ nguyên khung cấu trúc chuẩn SKKN
+   - Nhưng mỗi phần đều có chi tiết riêng (tên, số liệu, thời gian, địa điểm)
+   - Cân bằng: không quá khô khan (giống sách giáo khoa) và không quá tự nhiên (mất tính khoa học)
+
+2. SỐ LIỆU CỤ THỂ, KHÔNG LÀM TRÒN:
+   - Dùng số lẻ: 31/45 em (68,9%) thay vì 70%
+   - Có nguồn gốc: khảo sát ngày X, kiểm tra ngày Y
+   - Ghi rõ thời gian, phương pháp thu thập dữ liệu
+
+3. PARAPHRASE LÝ THUYẾT, TÍCH HỢP THỰC TIỄN:
+   - KHÔNG trích nguyên văn dài (> 1 câu)
+   - Kết hợp định nghĩa với ví dụ cụ thể ngay lập tức
+   - Ghi rõ tên tác giả + năm khi viện dẫn
+
+4. XEN KẼ QUAN SÁT CÁ NHÂN VỚI SỐ LIỆU:
+   - Kết hợp số liệu khoa học với quan sát chủ quan
+   - Trích dẫn lời học sinh để tạo tính chân thực
+   - Kể lại quá trình thực tế: khó khăn, cách giải quyết
+
+5. THỪA NHẬN HẠN CHẾ, PHÂN TÍCH NGUYÊN NHÂN:
+   - Tạo tính khách quan
+   - Không chỉ liệt kê kết quả, phải phân tích tại sao
+   - Nêu hạn chế trước, rồi đến hướng phát triển
+
+6. TRÁNH ĐẠO VĂN:
+   - KHÔNG mở đầu bằng "Trong bối cảnh đổi mới giáo dục hiện nay..."
+   - KHÔNG dùng các câu sáo rỗng phổ biến
+   - MỌI đoạn văn phải có ít nhất 1 yếu tố riêng biệt
+   - Không có 3 câu liên tiếp có cấu trúc giống nhau
+
+7. KỸ THUẬT VIẾT CỤ THỂ:
+   - Độ dài câu trung bình: 15-25 từ
+   - Mật độ thuật ngữ chuyên môn: 3-5%
+   - Thuật ngữ chuyên môn giải thích qua ví dụ thực tế ngay sau khi đưa ra
+   - Dùng "Thứ nhất", "Thứ hai"... thay vì bullet point khi phân tích
+`;
+
+// --- Phân tích sâu từng section dựa trên bối cảnh SKKN tổng thể ---
+export const deepAnalyzeSection = async (
+  sectionTitle: string,
+  sectionContent: string,
+  skknContext: {
+    currentTitle: string;
+    selectedTitle: string;
+    allSectionTitles: string[];
+    overallAnalysisSummary: string;
+  },
+  userRequirements: UserRequirements
+): Promise<SectionEditSuggestion[]> => {
+  const ai = getAI();
+
+  // Build reference docs context
+  const refDocsContext = userRequirements.referenceDocuments.length > 0
+    ? `\n\nTÀI LIỆU THAM KHẢO DO NGƯỜI DÙNG CUNG CẤP:\n${userRequirements.referenceDocuments.map((d, i) =>
+      `--- Tài liệu ${i + 1}: "${d.name}" (${d.type === 'exercise' ? 'Bài tập/Đề thi' : 'Tài liệu'}) ---\n${d.content.substring(0, 3000)}\n`
+    ).join('\n')}`
+    : '';
+
+  const pageLimitContext = userRequirements.pageLimit
+    ? `\nGIỚI HẠN SỐ TRANG: ${userRequirements.pageLimit} trang (khoảng ${userRequirements.pageLimit * 350} từ cho toàn bộ SKKN). Phần này nên chiếm tỷ lệ phù hợp.`
+    : '';
+
+  const customContext = userRequirements.customInstructions
+    ? `\nYÊU CẦU ĐẶC BIỆT: ${userRequirements.customInstructions}`
+    : '';
+
+  const prompt = `
+Bạn là chuyên gia thẩm định SKKN cấp Bộ với 20 năm kinh nghiệm. 
+
+BỐI CẢNH SKKN TỔNG THỂ:
+- Đề tài hiện tại: "${skknContext.currentTitle}"
+- Đề tài mới (nếu có): "${skknContext.selectedTitle}"
+- Các phần trong SKKN: ${skknContext.allSectionTitles.join(', ')}
+- Đánh giá tổng quan: ${skknContext.overallAnalysisSummary}
+${pageLimitContext}
+${customContext}
+${refDocsContext}
+
+${NATURAL_WRITING_GUIDE}
+
+NHIỆM VỤ: Phân tích SÂU phần "${sectionTitle}" trong BỐI CẢNH TỔNG THỂ của SKKN và đưa ra các ĐỀ XUẤT SỬA CỤ THỂ.
+
+QUY TẮC PHÂN TÍCH:
+1. PHẢI xét trong bối cảnh tổng thể SKKN, không phân tích đơn lẻ
+2. Đề xuất sửa phải CỤ THỂ: chỉ rõ đoạn nào cần sửa, sửa thành gì
+3. Mỗi đề xuất có action rõ ràng:
+   - "replace": thay thế đoạn cũ bằng đoạn mới
+   - "add": thêm nội dung mới (suggestedText chứa nội dung thêm)
+   - "remove": xóa đoạn không cần thiết (originalText chứa đoạn cần xóa)
+   - "modify": chỉnh sửa nhẹ (cả originalText và suggestedText)
+4. Category cho mỗi đề xuất:
+   - "content": nội dung thiếu/thừa/sai
+   - "example": ví dụ minh họa cần thêm/thay đổi
+   - "structure": cấu trúc cần điều chỉnh
+   - "language": ngôn ngữ/diễn đạt cần sửa (giọng máy móc, sáo rỗng)
+   - "reference": cần thay bằng ví dụ từ tài liệu tham khảo
+5. ĐẶC BIỆT QUAN TRỌNG về GIỌNG VĂN:
+   - Phát hiện và đề xuất sửa những chỗ giọng văn MÁY MÓC, KHUÔN MẪU
+   - Đề xuất cách viết TỰ NHIÊN hơn, có trải nghiệm cá nhân
+   - Xen kẽ số liệu với quan sát thực tế, lời học sinh...
+${userRequirements.referenceDocuments.length > 0 ? `
+6. NẾU có tài liệu tham khảo: đề xuất thay thế ví dụ cũ bằng ví dụ CHÍNH XÁC từ tài liệu. 
+   Trích nguyên văn bài tập/ví dụ từ tài liệu tham khảo, category = "reference".` : ''}
+
+Đưa ra 4-8 đề xuất sửa QUAN TRỌNG NHẤT, sắp xếp theo mức ưu tiên.
+
+NỘI DUNG PHẦN "${sectionTitle}":
+"""
+${sectionContent.substring(0, 8000)}
+"""
+  `;
+
+  return callWithFallback(async (model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        temperature: 0.2,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              action: { type: Type.STRING, description: "One of: replace, add, remove, modify" },
+              label: { type: Type.STRING, description: "Tóm tắt ngắn gọn đề xuất" },
+              description: { type: Type.STRING, description: "Giải thích chi tiết tại sao cần sửa" },
+              originalText: { type: Type.STRING, description: "Đoạn gốc cần sửa (trích chính xác). Để rỗng nếu action=add" },
+              suggestedText: { type: Type.STRING, description: "Đoạn thay thế/thêm mới. Để rỗng nếu action=remove" },
+              category: { type: Type.STRING, description: "One of: content, example, structure, language, reference" }
+            }
+          }
+        }
+      }
+    });
+    if (!response.text) throw new Error("No response from AI");
+    const parsed = JSON.parse(response.text);
+    return parsed.map((s: any) => ({ ...s, applied: false }));
+  });
+};
+
+// --- Viết lại section với tài liệu tham khảo và giọng văn tự nhiên ---
+export const refineSectionWithReferences = async (
+  sectionName: string,
+  originalContent: string,
+  newTitle: string,
+  userRequirements: UserRequirements
+): Promise<string> => {
+  const ai = getAI();
+  const knowledgeContext = buildKnowledgeContext(sectionName);
+
+  const needsTable = /kết quả|hiệu quả|thực nghiệm|so sánh|khảo sát/i.test(sectionName);
+  const tableInstruction = needsTable ? `\n- Nếu có số liệu trước/sau, trình bày BẢNG SO SÁNH:\n${COMPARISON_TABLE_TEMPLATE}` : '';
+
+  const refDocsContext = userRequirements.referenceDocuments.length > 0
+    ? `\n\n===== TÀI LIỆU THAM KHẢO =====\n${userRequirements.referenceDocuments.map((d, i) =>
+      `--- ${d.type === 'exercise' ? 'BÀI TẬP' : 'TÀI LIỆU'} ${i + 1}: "${d.name}" ---\n${d.content.substring(0, 4000)}\n`
+    ).join('\n')}\n\nYÊU CẦU ĐẶC BIỆT VỀ TÀI LIỆU THAM KHẢO:\n- PHẢI lấy ví dụ minh họa CHÍNH XÁC từ tài liệu tham khảo ở trên\n- Thay thế các ví dụ chung chung trong SKKN cũ bằng ví dụ cụ thể từ tài liệu\n- Trích nguyên văn đề bài, bài tập từ tài liệu (không tự sáng tạo)\n- Nếu tài liệu có bài tập → sử dụng làm ví dụ minh họa cho giải pháp\n=============================`
+    : '';
+
+  const pageLimitContext = userRequirements.pageLimit
+    ? `\nGIỚI HẠN: Phần này nên khoảng ${Math.round(userRequirements.pageLimit * 350 / 6)} từ (trong tổng ${userRequirements.pageLimit} trang SKKN).`
+    : '';
+
+  const customContext = userRequirements.customInstructions
+    ? `\nYÊU CẦU BỔ SUNG: ${userRequirements.customInstructions}`
+    : '';
+
+  const prompt = `
+Bạn là chuyên gia viết SKKN cấp Bộ với 20 năm kinh nghiệm. Viết lại phần "${sectionName}" cho đề tài: "${newTitle}".
+
+===== KIẾN THỨC CHUYÊN MÔN =====
+${knowledgeContext}
+================================
+
+${NATURAL_WRITING_GUIDE}
+${refDocsContext}
+${pageLimitContext}
+${customContext}
+
+NGUYÊN TẮC BẤT DI BẤT DỊCH:
+1. GIỮ NGUYÊN tất cả số liệu thực tế (%, số lượng, điểm số, năm học).
+2. GIỮ NGUYÊN tên riêng (trường, lớp, địa danh, tên người).
+3. THAY ĐỔI cách diễn đạt: ngôn ngữ học thuật nhưng TỰ NHIÊN, có trải nghiệm cá nhân.
+4. LOẠI BỎ tất cả câu sáo rỗng. Dẫn dắt trực tiếp, cụ thể.
+5. XEN KẼ quan sát cá nhân vào giữa số liệu khoa học.
+6. SỬ DỤNG số liệu lẻ (31/45 = 68,9%), không làm tròn.
+7. TRÁNH giọng văn máy móc, khuôn mẫu. Viết như một giáo viên ĐAM MÊ kể lại quá trình thực tế.
+8. GIỮ NGUYÊN mọi công thức toán học — viết dưới dạng LaTeX.
+9. KHÔNG được bỏ, thay đổi, hay viết lại bất kỳ công thức toán nào.
+10. Nếu có tài liệu tham khảo → LẤY VÍ DỤ CHÍNH XÁC từ đó, không tự bịa.
+${tableInstruction}
+
+Nội dung gốc:
+"${originalContent}"
+
+Trả về nội dung đã sửa. Định dạng đẹp, chuẩn. Bảng biểu dùng markdown table.
   `;
 
   return callWithFallback(async (model) => {

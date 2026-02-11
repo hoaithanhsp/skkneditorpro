@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AppStep, SKKNData, SectionContent, TitleSuggestion, ToastMessage, HistoryEntry } from './types';
+import { AppStep, SKKNData, SectionContent, TitleSuggestion, ToastMessage, HistoryEntry, UserRequirements } from './types';
 import { STEP_LABELS } from './constants';
 import * as geminiService from './services/geminiService';
 import * as historyService from './services/historyService';
@@ -53,7 +53,8 @@ const parseSectionsLocal = (text: string): SectionContent[] => {
         originalContent: body,
         refinedContent: '',
         isProcessing: false,
-        suggestions: []
+        suggestions: [],
+        editSuggestions: []
       });
     }
   });
@@ -79,6 +80,11 @@ const App: React.FC = () => {
   const [showApiModal, setShowApiModal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [userRequirements, setUserRequirements] = useState<UserRequirements>({
+    pageLimit: null,
+    referenceDocuments: [],
+    customInstructions: ''
+  });
 
   // Check API key on mount
   useEffect(() => {
@@ -147,7 +153,8 @@ const App: React.FC = () => {
           originalContent: s.content || '',
           refinedContent: '',
           isProcessing: false,
-          suggestions: []
+          suggestions: [],
+          editSuggestions: []
         }));
       } catch (parseError) {
         console.warn('AI parse failed, using local fallback', parseError);
@@ -248,6 +255,33 @@ const App: React.FC = () => {
 
   const handleUpdateSections = (newSections: SectionContent[]) => {
     setData(prev => ({ ...prev, sections: newSections }));
+  };
+
+  // --- Refine with reference documents ---
+  const handleRefineSectionWithRefs = async (sectionId: string) => {
+    if (!data.selectedNewTitle) return;
+    setProcessingSectionId(sectionId);
+
+    const section = data.sections.find(s => s.id === sectionId);
+    if (section && section.originalContent) {
+      try {
+        const refined = await geminiService.refineSectionWithReferences(
+          section.title, section.originalContent, data.selectedNewTitle.title, userRequirements
+        );
+        setData(prev => ({
+          ...prev,
+          sections: prev.sections.map(s =>
+            s.id === sectionId ? { ...s, refinedContent: refined } : s
+          )
+        }));
+        addToast('success', `Đã viết lại "${section.title}" với tài liệu tham khảo!`);
+        setTimeout(autoSave, 500);
+      } catch (e: any) {
+        console.error("Refine with refs failed", e);
+        addToast('error', `Lỗi viết lại phần "${section.title}".`);
+      }
+    }
+    setProcessingSectionId(null);
   };
 
   const handleFinish = async () => {
@@ -445,10 +479,20 @@ const App: React.FC = () => {
           <StepEditor
             sections={data.sections}
             onRefineSection={handleRefineSection}
+            onRefineSectionWithRefs={handleRefineSectionWithRefs}
             isProcessing={processingSectionId}
             onFinish={handleFinish}
             selectedTitle={data.selectedNewTitle?.title || data.currentTitle}
+            currentTitle={data.currentTitle}
+            overallAnalysisSummary={
+              data.analysis
+                ? `Chất lượng: ${data.analysis.qualityScore}/100, Đạo văn: ${data.analysis.plagiarismScore}%, ` +
+                `Cấu trúc: ${data.analysis.structure.missing.length === 0 ? 'Đầy đủ' : 'Thiếu ' + data.analysis.structure.missing.join(', ')}`
+                : 'Chưa phân tích'
+            }
             onUpdateSections={handleUpdateSections}
+            userRequirements={userRequirements}
+            onUpdateRequirements={setUserRequirements}
           />
         )}
       </main>
