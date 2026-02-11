@@ -87,6 +87,14 @@ ${scoringContext}
        - Tính thực tiễn (giải quyết vấn đề cụ thể nào?)
        - Khả năng nhân rộng (mô hình có thể triển khai rộng?)
        - Hình thức trình bày (format, bảng biểu, tài liệu tham khảo)
+    
+    ⚠️ BẮT BUỘC: Với MỖI tiêu chí trong qualityCriteria:
+       - "score" phải từ 1-10, ĐÚNG thực tế văn bản (không phải luôn cho điểm thấp)
+       - "comment" phải viết NHẬN XÉT CỤ THỂ ít nhất 30 ký tự, giải thích TẠI SAO cho điểm đó
+       - KHÔNG ĐƯỢC BỎ TRỐNG comment. Nếu điểm thấp, PHẢI giải thích thiếu gì
+       - Ví dụ comment tốt: "Ứng dụng AI Gemini vào dạy học là ý tưởng rất mới, chưa phổ biến trong SKKN hiện tại"
+       - Ví dụ comment XẤU (KHÔNG CHẤP NHẬN): "" hoặc "Tốt" hoặc "Chưa tốt"
+
     4. Ước tỷ lệ đạo văn — kiểm tra câu sáo rỗng phổ biến: ${clicheList}
     5. Đánh giá chi tiết từng phần (sectionFeedback): cho mỗi phần đánh giá status (good/needs_work/missing), tóm tắt, và 2-3 gợi ý CỤ THỂ (không chung chung).
     
@@ -124,9 +132,9 @@ ${scoringContext}
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  criteria: { type: Type.STRING },
-                  score: { type: Type.NUMBER, description: "Score out of 10" },
-                  comment: { type: Type.STRING }
+                  criteria: { type: Type.STRING, description: "Tên tiêu chí đánh giá" },
+                  score: { type: Type.NUMBER, description: "Điểm từ 1-10, đánh giá chính xác theo nội dung thực tế" },
+                  comment: { type: Type.STRING, description: "Nhận xét CỤ THỂ ít nhất 30 ký tự, giải thích tại sao cho điểm này. KHÔNG ĐƯỢC bỏ trống." }
                 }
               }
             },
