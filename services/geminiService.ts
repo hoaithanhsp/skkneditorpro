@@ -712,13 +712,14 @@ export const shortenSKKN = async (
 ): Promise<string> => {
   const ai = getAI();
 
-  const totalWordBudget = targetPages * 350;
-  const introWordBudget = Math.round(totalWordBudget * 0.10);
-  const solutionWordBudget = Math.round(totalWordBudget * 0.80);
-  const conclusionWordBudget = Math.round(totalWordBudget * 0.10);
+  const CHARS_PER_PAGE = 2200; // Times New Roman 12pt, lề 2.5cm, giãn dòng 1.15-1.5
+  const totalCharBudget = targetPages * CHARS_PER_PAGE;
+  const introCharBudget = Math.round(totalCharBudget * 0.10);
+  const solutionCharBudget = Math.round(totalCharBudget * 0.80);
+  const conclusionCharBudget = Math.round(totalCharBudget * 0.10);
 
-  const originalWordCount = fullText.split(/\s+/).length;
-  const ratio = Math.round((totalWordBudget / originalWordCount) * 100);
+  const originalCharCount = fullText.length;
+  const ratio = Math.round((totalCharBudget / originalCharCount) * 100);
 
   // Gửi tối đa 80K ký tự
   const truncated = fullText.substring(0, 80000);
@@ -729,17 +730,18 @@ Bạn là chuyên gia biên tập SKKN. Nhiệm vụ: VIẾT LẠI bản rút g�
 ⚠️⚠️⚠️ CẢNH BÁO QUAN TRỌNG NHẤT ⚠️⚠️⚠️
 - KHÔNG ĐƯỢC TÓM TẮT. KHÔNG ĐƯỢC VIẾT "tóm lại", "tóm tắt", "nội dung chính là..."
 - Bạn phải VIẾT RA ĐẦY ĐỦ NỘI DUNG, giống như viết lại 1 bài SKKN hoàn chỉnh
-- Bài viết ra PHẢI DÀI ĐÚNG ~${totalWordBudget} từ (khoảng ${targetPages} trang A4)
-- Bản gốc có ~${originalWordCount} từ → bạn cần giữ lại ~${ratio}% nội dung
-- Nếu bài viết ra NGẮN HƠN ${Math.round(totalWordBudget * 0.8)} từ = BẠN ĐÃ LÀM SAI
+- Bài viết ra PHẢI DÀI ĐÚNG ~${totalCharBudget.toLocaleString()} ký tự (khoảng ${targetPages} trang A4)
+- QUY TẮC ĐẾM TRANG: 1 trang A4 = 2.200 ký tự (font Times New Roman 12pt, lề 2.5cm, giãn dòng 1.15-1.5)
+- Bản gốc có ~${originalCharCount.toLocaleString()} ký tự (~${Math.round(originalCharCount / CHARS_PER_PAGE)} trang) → bạn cần giữ lại ~${ratio}% nội dung
+- Nếu bài viết ra NGẮN HƠN ${Math.round(totalCharBudget * 0.85).toLocaleString()} ký tự = BẠN ĐÃ LÀM SAI
 
-===== YÊU CẦU SỐ LƯỢNG TỪ (BẮT BUỘC) =====
-TỔNG: ${totalWordBudget} từ (${targetPages} trang)
+===== YÊU CẦU SỐ LƯỢNG KÝ TỰ (BẮT BUỘC) =====
+TỔNG: ${totalCharBudget.toLocaleString()} ký tự = ${targetPages} trang A4
 Phân bổ:
-• Mở đầu + Cơ sở lý luận + Thực trạng: ~${introWordBudget} từ (10%) → viết ít nhất ${introWordBudget} từ cho phần này
-• Giải pháp/Biện pháp (NỘI DUNG CHÍNH): ~${solutionWordBudget} từ (80%) → viết ít nhất ${solutionWordBudget} từ cho phần này
-• Kết quả + Kết luận + Kiến nghị: ~${conclusionWordBudget} từ (10%) → viết ít nhất ${conclusionWordBudget} từ cho phần này
-==============================================
+• Mở đầu + Cơ sở lý luận + Thực trạng: ~${introCharBudget.toLocaleString()} ký tự (10%)
+• Giải pháp/Biện pháp (NỘI DUNG CHÍNH): ~${solutionCharBudget.toLocaleString()} ký tự (80%)
+• Kết quả + Kết luận + Kiến nghị: ~${conclusionCharBudget.toLocaleString()} ký tự (10%)
+===================================================
 
 CÁCH THỰC HIỆN:
 1. Đọc toàn bộ SKKN gốc
@@ -749,14 +751,14 @@ CÁCH THỰC HIỆN:
    - Cắt bỏ: lặp ý, giải thích thừa, trích dẫn dài
    - Gộp câu cùng ý thành câu ngắn hơn
 4. Giữ nguyên: công thức toán ($...$), bảng biểu, danh sách
-5. Với phần Giải pháp: GIỮ TẤT CẢ giải pháp (không xóa giải pháp nào), mỗi giải pháp viết ${Math.round(solutionWordBudget / 5)}-${Math.round(solutionWordBudget / 3)} từ
+5. Với phần Giải pháp: GIỮ TẤT CẢ giải pháp (không xóa giải pháp nào)
 
 KIỂM TRA TRƯỚC KHI TRẢ VỀ:
-□ Tổng số từ đã đạt ~${totalWordBudget} từ chưa? (phải ≥ ${Math.round(totalWordBudget * 0.85)} từ)
+□ Tổng ký tự đã đạt ~${totalCharBudget.toLocaleString()} chưa? (phải ≥ ${Math.round(totalCharBudget * 0.85).toLocaleString()} ký tự)
 □ Đã giữ tất cả đề mục chưa?
 □ Mỗi phần có đủ nội dung theo ngân sách chưa?
 
-ĐỊNH DẠNG: Viết ra Markdown hoàn chỉnh. KHÔNG ghi chú giải thích. KHÔNG ghi "Ước tính: X từ".
+ĐỊNH DẠNG: Viết ra Markdown hoàn chỉnh. KHÔNG ghi chú giải thích. KHÔNG ghi "Ước tính: X ký tự".
 Bắt đầu viết NGAY nội dung SKKN rút gọn:
 
 ===== VĂN BẢN SKKN GỐC =====
