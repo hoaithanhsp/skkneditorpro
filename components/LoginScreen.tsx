@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Lock, User, Eye, EyeOff, AlertCircle, LogIn } from 'lucide-react';
-import { hashPassword, AccountEntry } from '../services/authService';
 import accountsData from '../data/accounts.json';
 
 interface LoginScreenProps {
@@ -26,18 +25,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         setIsLoading(true);
 
         try {
-            // Hash password phía client — không bao giờ truyền plaintext
-            const inputHash = await hashPassword(password);
-
-            // So sánh với danh sách tài khoản (đã hash sẵn)
-            const accounts: AccountEntry[] = accountsData as AccountEntry[];
+            const accounts = accountsData as { username: string; password: string; displayName: string }[];
             const matched = accounts.find(
-                acc => acc.username.toLowerCase() === username.trim().toLowerCase()
-                    && acc.passwordHash === inputHash
+                acc => acc.username === username.trim()
+                    && acc.password === password
             );
 
             if (matched) {
-                // Lưu phiên đăng nhập
                 sessionStorage.setItem('skkn_logged_in', 'true');
                 sessionStorage.setItem('skkn_display_name', matched.displayName);
                 onLoginSuccess(matched.displayName);
