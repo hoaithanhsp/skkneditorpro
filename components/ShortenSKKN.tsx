@@ -17,6 +17,7 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
     const [originalText, setOriginalText] = useState<string>('');
     const [targetPages, setTargetPages] = useState<number>(15);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [progressMsg, setProgressMsg] = useState('');
     const [result, setResult] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
 
@@ -103,7 +104,7 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
         setError(null);
         setResult('');
         try {
-            const shortened = await geminiService.shortenSKKN(originalText, targetPages);
+            const shortened = await geminiService.shortenSKKN(originalText, targetPages, (msg) => setProgressMsg(msg));
             setResult(shortened);
         } catch (err: any) {
             setError(`Lỗi rút ngắn: ${err.message || 'Không xác định'}`);
@@ -188,8 +189,7 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
                         Đang rút ngắn SKKN...
                     </h3>
                     <p style={{ color: '#64748b', fontSize: 14, textAlign: 'center', maxWidth: 420 }}>
-                        AI đang phân tích cấu trúc và rút ngắn từ ~{estimatedOriginalPages} trang xuống {targetPages} trang,
-                        giữ 80% nội dung giải pháp. Quá trình này có thể mất 1-3 phút.
+                        {progressMsg || `AI đang phân tích cấu trúc và rút ngắn từ ~${estimatedOriginalPages} trang xuống ${targetPages} trang. Quá trình này có thể mất 2-5 phút.`}
                     </p>
                     <div className="progress-bar" style={{ width: 240, marginTop: 8 }}>
                         <div className="progress-bar-fill primary animate-shimmer" style={{ width: '45%' }}></div>
