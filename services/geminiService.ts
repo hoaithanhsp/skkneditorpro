@@ -165,7 +165,8 @@ ${scoringContext}
 // --- Parse SKKN Structure (AI-powered, multi-level) ---
 export const parseStructure = async (text: string): Promise<{ id: string, title: string, level: number, parentId: string, content: string }[]> => {
   const ai = getAI();
-  const truncated = text.substring(0, 20000);
+  // Gửi tối đa 50K ký tự — đủ cho SKKN 50+ trang
+  const truncated = text.substring(0, 50000);
 
   const prompt = `
     Bạn là chuyên gia phân tích cấu trúc Sáng kiến Kinh nghiệm (SKKN) Việt Nam.
@@ -194,6 +195,14 @@ export const parseStructure = async (text: string): Promise<{ id: string, title:
     7. "title" = tên/tiêu đề CHÍNH XÁC như trong văn bản gốc
     8. "level" = cấp độ: 1, 2, 3, 4...
     9. TUYỆT ĐỐI KHÔNG bỏ sót nội dung. Mỗi đoạn văn trong SKKN phải thuộc về ít nhất 1 mục.
+    10. PHẢI RÀ SOÁT ĐẾN HẾT VĂN BẢN — bao gồm cả các phần cuối cùng như:
+        - Kết luận / Kiến nghị
+        - Tài liệu tham khảo
+        - Phụ lục
+        - Cam kết / Lời cam đoan
+        Nếu văn bản có các phần này thì BẮT BUỘC phải liệt kê.
+    11. Kiểm tra lại: đếm số phần level 1 tìm được. Nếu SKKN thường có 5-7 phần chính
+        mà chỉ tìm được <= 4 phần → RÀ SOÁT LẠI TOÀN BỘ văn bản vì CÓ THỂ bỏ sót.
     
     VĂN BẢN SKKN:
     """
@@ -689,6 +698,89 @@ Trả về nội dung đã sửa hoàn chỉnh. Định dạng đẹp, chuẩn. 
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
+    });
+    return response.text || "";
+  });
+};
+
+// ================================================================
+// RÚT NGẮN SKKN THEO SỐ TRANG YÊU CẦU
+// ================================================================
+export const shortenSKKN = async (
+  fullText: string,
+  targetPages: number
+): Promise<string> => {
+  const ai = getAI();
+
+  const totalWordBudget = targetPages * 350;
+  const introWordBudget = Math.round(totalWordBudget * 0.10);
+  const solutionWordBudget = Math.round(totalWordBudget * 0.80);
+  const conclusionWordBudget = Math.round(totalWordBudget * 0.10);
+
+  const truncated = fullText.substring(0, 60000);
+
+  const prompt = `
+Bạn là chuyên gia biên tập Sáng kiến Kinh nghiệm (SKKN) với 20 năm kinh nghiệm. 
+
+NHIỆM VỤ: RÚT NGẮN toàn bộ SKKN dưới đây xuống còn khoảng ${targetPages} trang (~${totalWordBudget} từ).
+
+===== NGÂN SÁCH TỪ THEO TỈ LỆ =====
+- Mở đầu + Cơ sở lý luận + Thực trạng: ~${introWordBudget} từ (10%)
+- Nội dung Giải pháp/Biện pháp (CHÍNH): ~${solutionWordBudget} từ (80%)
+- Kết quả + Kết luận + Kiến nghị: ~${conclusionWordBudget} từ (10%)
+=====================================
+
+QUY TẮC BẮT BUỘC:
+
+1. GIỮ NGUYÊN CẤU TRÚC ĐỀ MỤC:
+   - Giữ tất cả tiêu đề phần (PHẦN I, II, ...)
+   - Giữ tất cả đề mục con (1., 2., Giải pháp 1, Biện pháp 1, ...)
+   - Chỉ rút ngắn NỘI DUNG, không xóa đề mục
+
+2. GIỮ NGUYÊN ĐỊNH DẠNG:
+   - Công thức toán học (LaTeX: $...$, \\frac, \\sqrt)
+   - Mô tả hình ảnh (có thể xóa BỚT hình không cần thiết nhưng KHÔNG vỡ cấu trúc)
+   - Bảng biểu quan trọng (số liệu, so sánh)
+   - In đậm (**text**), in nghiêng (*text**)
+   - Danh sách (bullet points, numbered lists)
+
+3. CHIẾN LƯỢC RÚT NGẮN:
+   - ƯU TIÊN GIỮ: Ý chính, số liệu, luận điểm cốt lõi, bảng biểu, công thức
+   - CẮT BỎ: Ý phụ, giải thích dài dòng, ví dụ trùng lặp, trích dẫn dài, hình ảnh thừa
+   - Gộp nhiều câu cùng ý thành 1 câu ngắn gọn
+   - Loại bỏ câu sáo rỗng
+   - Rút gọn phần lý luận chung, giữ phần cụ thể
+   - Với Giải pháp: giữ TẤT CẢ giải pháp, chỉ rút ngắn mô tả mỗi giải pháp
+   - Nếu có N giải pháp → ~${Math.round(solutionWordBudget / 5)} từ/giải pháp (ước 5 GP)
+
+4. PHẦN MỞ ĐẦU + THỰC TRẠNG (10%):
+   - Chỉ giữ lý do, bối cảnh cốt lõi, số liệu quan trọng nhất
+   - Loại bỏ trích dẫn lý luận dài
+
+5. PHẦN KẾT LUẬN (10%):
+   - Tóm tắt kết quả chính (giữ bảng số liệu nếu có)
+   - Kiến nghị ngắn gọn
+
+6. KIỂM TRA SAU RÚT NGẮN:
+   - Số từ ước tính gần ${totalWordBudget} (±10%)
+   - Không thiếu đề mục
+   - Công thức toán học nguyên vẹn
+   - Logic mạch lạc
+
+ĐỊNH DẠNG ĐẦU RA: Toàn bộ SKKN đã rút ngắn — Markdown, bảng biểu markdown table, công thức LaTeX.
+
+===== VĂN BẢN SKKN GỐC =====
+${truncated}
+===== HẾT VĂN BẢN =====
+  `;
+
+  return callWithFallback(async (model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        temperature: 0.1,
+      },
     });
     return response.text || "";
   });

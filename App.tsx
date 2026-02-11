@@ -10,60 +10,135 @@ import StepTitle from './components/StepTitle';
 import StepEditor from './components/StepEditor';
 import ApiKeyModal from './components/ApiKeyModal';
 import HistoryPanel from './components/HistoryPanel';
-import { Settings, Check, Key, AlertCircle, Clock } from 'lucide-react';
+import ShortenSKKN from './components/ShortenSKKN';
+import LoginScreen from './components/LoginScreen';
+import { Settings, Check, Key, AlertCircle, Clock, Scissors, LogOut } from 'lucide-react';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 
 // --- Local fallback parser (used if AI parse fails) ---
 const parseSectionsLocal = (text: string): SectionContent[] => {
   const sections: SectionContent[] = [];
-  // Try flexible patterns
-  const patterns = [
-    /(?:PHẦN\s+[IVXLC]+|Phần\s+[IVXLC]+|CHƯƠNG\s+\d+|A\.|B\.|C\.|D\.|E\.|F\.)\s*[:.]?\s*/gi,
+
+  // Multi-pattern section detection - covers most SKKN formats
+  const sectionPatterns: { regex: RegExp; idPrefix: string }[] = [
+    // "PHẦN I", "PHẦN II", ... "PHẦN VII" (Roman numerals)
+    { regex: /^(?:PHẦN|Phần)\s+([IVXLC]+)\b[.:)]*\s*(.*)/gim, idPrefix: 'phan' },
+    // "I.", "II.", "III." standalone section numbering
+    { regex: /^([IVXLC]+)\.\s+([\wÀ-ỹ].*)/gim, idPrefix: 'roman' },
+    // "CHƯƠNG 1", "Chương 2"
+    { regex: /^(?:CHƯƠNG|Chương)\s+(\d+)\b[.:)]*\s*(.*)/gim, idPrefix: 'chuong' },
+    // Known standalone section titles (often without numbering)
+    { regex: /^(MỤC LỤC|TÀI LIỆU THAM KHẢO|PHỤ LỤC|DANH MỤC|LỜI CAM ĐOAN|LỜI CẢM ƠN|KẾT LUẬN VÀ KIẾN NGHỊ)\b(.*)/gim, idPrefix: 'named' },
   ];
 
-  const upperText = text.toUpperCase();
-  const keywords = [
-    { key: 'PHẦN I', id: 'section-1' },
-    { key: 'PHẦN II', id: 'section-2' },
-    { key: 'PHẦN III', id: 'section-3' },
-    { key: 'PHẦN IV', id: 'section-4' },
-    { key: 'PHẦN V', id: 'section-5' },
-    { key: 'PHẦN VI', id: 'section-6' },
-    { key: 'PHẦN VII', id: 'section-7' },
-  ];
+  interface SectionMatch { index: number; title: string; id: string }
+  let allMatches: SectionMatch[] = [];
 
-  keywords.forEach((kw, index) => {
-    const nextKw = keywords[index + 1];
-    const startIndex = upperText.indexOf(kw.key);
-
-    if (startIndex !== -1) {
-      let endIndex = nextKw ? upperText.indexOf(nextKw.key) : text.length;
-      if (endIndex === -1) endIndex = text.length;
-
-      const content = text.substring(startIndex, endIndex).trim();
-      const titleLine = content.split('\n')[0];
-      const body = content.substring(titleLine.length).trim();
-
-      sections.push({
-        id: kw.id,
-        title: titleLine.trim(),
-        level: 1,
-        parentId: undefined,
-        originalContent: body,
-        refinedContent: '',
-        isProcessing: false,
-        suggestions: [],
-        editSuggestions: []
-      });
+  // Collect all matches across all patterns
+  for (const { regex, idPrefix } of sectionPatterns) {
+    let match;
+    regex.lastIndex = 0;
+    while ((match = regex.exec(text)) !== null) {
+      const fullTitle = match[0].trim();
+      const id = `${idPrefix}-${allMatches.length + 1}`;
+      allMatches.push({ index: match.index, title: fullTitle, id });
     }
-  });
+  }
+
+  // Deduplicate overlapping matches (same position within 5 chars → keep first)
+  allMatches.sort((a, b) => a.index - b.index);
+  const deduped: SectionMatch[] = [];
+  for (const m of allMatches) {
+    if (deduped.length === 0 || Math.abs(m.index - deduped[deduped.length - 1].index) > 5) {
+      deduped.push(m);
+    }
+  }
+
+  // If standard patterns found nothing, try "PHẦN I" keyword approach as last resort
+  if (deduped.length === 0) {
+    const upperText = text.toUpperCase();
+    const keywords = [
+      { key: 'PHẦN I', id: 'section-1' }, { key: 'PHẦN II', id: 'section-2' },
+      { key: 'PHẦN III', id: 'section-3' }, { key: 'PHẦN IV', id: 'section-4' },
+      { key: 'PHẦN V', id: 'section-5' }, { key: 'PHẦN VI', id: 'section-6' },
+      { key: 'PHẦN VII', id: 'section-7' }, { key: 'PHẦN VIII', id: 'section-8' },
+    ];
+
+    for (const kw of keywords) {
+      const idx = upperText.indexOf(kw.key);
+      if (idx !== -1) {
+        const lineEnd = text.indexOf('\n', idx);
+        const title = text.substring(idx, lineEnd !== -1 ? lineEnd : idx + 80).trim();
+        deduped.push({ index: idx, title, id: kw.id });
+      }
+    }
+    deduped.sort((a, b) => a.index - b.index);
+  }
+
+  // Extract content between sections
+  for (let i = 0; i < deduped.length; i++) {
+    const current = deduped[i];
+    const next = deduped[i + 1];
+    const startPos = current.index;
+    const endPos = next ? next.index : text.length;
+
+    const rawContent = text.substring(startPos, endPos).trim();
+    const titleLine = rawContent.split('\n')[0];
+    const body = rawContent.substring(titleLine.length).trim();
+
+    sections.push({
+      id: current.id,
+      title: titleLine.trim(),
+      level: 1,
+      parentId: undefined,
+      originalContent: body,
+      refinedContent: '',
+      isProcessing: false,
+      suggestions: [],
+      editSuggestions: []
+    });
+  }
 
   return sections;
 };
 
 
 const App: React.FC = () => {
+  // --- Authentication State ---
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return sessionStorage.getItem('skkn_logged_in') === 'true';
+  });
+  const [displayName, setDisplayName] = useState(() => {
+    return sessionStorage.getItem('skkn_display_name') || '';
+  });
+
+  const handleLoginSuccess = (name: string) => {
+    setIsLoggedIn(true);
+    setDisplayName(name);
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('skkn_logged_in');
+    sessionStorage.removeItem('skkn_display_name');
+    setIsLoggedIn(false);
+    setDisplayName('');
+  };
+
+  // --- If not logged in, show login screen ---
+  if (!isLoggedIn) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  return <AppContent displayName={displayName} onLogout={handleLogout} />;
+};
+
+interface AppContentProps {
+  displayName: string;
+  onLogout: () => void;
+}
+
+const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   const [currentStep, setCurrentStep] = useState<AppStep>(AppStep.UPLOAD);
   const [maxReachedStep, setMaxReachedStep] = useState<number>(0);
   const [data, setData] = useState<SKKNData>({
@@ -79,6 +154,7 @@ const App: React.FC = () => {
   const [processingSectionId, setProcessingSectionId] = useState<string | null>(null);
   const [showApiModal, setShowApiModal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showShortenMode, setShowShortenMode] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [userRequirements, setUserRequirements] = useState<UserRequirements>({
     pageLimit: null,
@@ -156,6 +232,24 @@ const App: React.FC = () => {
           suggestions: [],
           editSuggestions: []
         }));
+
+        // VALIDATION: Cross-check with local parser to catch missing sections
+        const localSections = parseSectionsLocal(text);
+        const aiLevel1Count = sections.filter(s => s.level === 1).length;
+        const localLevel1Count = localSections.length;
+
+        if (aiLevel1Count < localLevel1Count && localLevel1Count > aiLevel1Count + 1) {
+          // AI missed sections — merge local sections that AI didn't find
+          console.warn(`AI found ${aiLevel1Count} level-1 sections but local parser found ${localLevel1Count}. Merging...`);
+          const existingTitles = sections.map(s => s.title.toLowerCase().substring(0, 20));
+          for (const localSec of localSections) {
+            const titlePrefix = localSec.title.toLowerCase().substring(0, 20);
+            const alreadyExists = existingTitles.some(t => t.includes(titlePrefix) || titlePrefix.includes(t));
+            if (!alreadyExists) {
+              sections.push({ ...localSec, id: `merged-${localSec.id}` });
+            }
+          }
+        }
       } catch (parseError) {
         console.warn('AI parse failed, using local fallback', parseError);
         sections = parseSectionsLocal(text);
@@ -424,6 +518,15 @@ const App: React.FC = () => {
                 <AlertCircle size={14} /> Chưa có API key
               </span>
             )}
+            {displayName && (
+              <span style={{
+                fontSize: 12, fontWeight: 600, color: '#0f766e',
+                padding: '4px 10px', background: '#f0fdfa',
+                borderRadius: 8, border: '1px solid #ccfbf1'
+              }}>
+                👤 {displayName}
+              </span>
+            )}
             <button
               onClick={() => setShowHistory(true)}
               className="btn-secondary btn-sm"
@@ -439,6 +542,14 @@ const App: React.FC = () => {
               <Settings size={14} />
               <Key size={12} />
             </button>
+            <button
+              onClick={onLogout}
+              className="btn-secondary btn-sm"
+              title="Đăng xuất"
+              style={{ color: '#e11d48' }}
+            >
+              <LogOut size={14} />
+            </button>
           </div>
         </div>
       </header>
@@ -446,18 +557,47 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 20px' }}>
 
-        {currentStep === AppStep.UPLOAD && (
-          <StepUpload onUpload={handleUpload} isProcessing={isProcessing} />
+        {/* Shorten SKKN Mode */}
+        {showShortenMode && (
+          <ShortenSKKN onClose={() => setShowShortenMode(false)} />
         )}
 
-        {currentStep === AppStep.ANALYZING && data.analysis && (
+        {!showShortenMode && currentStep === AppStep.UPLOAD && (
+          <>
+            <StepUpload onUpload={handleUpload} isProcessing={isProcessing} />
+            {!isProcessing && (
+              <div style={{
+                display: 'flex', justifyContent: 'center', marginTop: 12
+              }}>
+                <button
+                  onClick={() => setShowShortenMode(true)}
+                  className="btn-secondary"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 24px', fontSize: 14, fontWeight: 600,
+                    background: 'linear-gradient(135deg, #fffbeb, #fef3c7)',
+                    border: '1.5px solid #fde68a',
+                    color: '#92400e', borderRadius: 12,
+                    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.1)',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <Scissors size={16} color="#d97706" />
+                  Rút ngắn SKKN theo số trang
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {!showShortenMode && currentStep === AppStep.ANALYZING && data.analysis && (
           <StepAnalysis
             metrics={data.analysis}
             onContinue={handleAnalysisContinue}
           />
         )}
 
-        {currentStep === AppStep.DASHBOARD && data.analysis && (
+        {!showShortenMode && currentStep === AppStep.DASHBOARD && data.analysis && (
           <StepDashboard
             sections={data.sections}
             analysis={data.analysis}
@@ -466,7 +606,7 @@ const App: React.FC = () => {
           />
         )}
 
-        {currentStep === AppStep.TITLE_SELECTION && (
+        {!showShortenMode && currentStep === AppStep.TITLE_SELECTION && (
           <StepTitle
             currentTitle={data.currentTitle}
             suggestions={data.titleSuggestions}
@@ -475,7 +615,7 @@ const App: React.FC = () => {
           />
         )}
 
-        {currentStep === AppStep.CONTENT_REFINEMENT && (
+        {!showShortenMode && currentStep === AppStep.CONTENT_REFINEMENT && (
           <StepEditor
             sections={data.sections}
             onRefineSection={handleRefineSection}

@@ -182,34 +182,38 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
       <div className="glass-card" style={{ padding: 20 }}>
         <h4 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Đánh giá chi tiết từng tiêu chí</h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {metrics.qualityCriteria.map((item, idx) => (
-            <div key={idx} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '12px 16px', borderRadius: 12,
-              background: item.score >= 8 ? '#ecfdf5' : item.score >= 5 ? '#fffbeb' : '#fff1f2',
-              border: `1px solid ${item.score >= 8 ? '#a7f3d0' : item.score >= 5 ? '#fde68a' : '#fecdd3'}`,
-              boxShadow: `0 2px 0 ${item.score >= 8 ? '#d1fae5' : item.score >= 5 ? '#fef3c7' : '#ffe4e6'}`
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-                <div style={{
-                  width: 36, height: 36, borderRadius: 10,
-                  background: getColor(item.score),
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 15, fontWeight: 800, color: 'white', flexShrink: 0,
-                  boxShadow: `0 2px 0 ${item.score >= 8 ? '#059669' : item.score >= 5 ? '#d97706' : '#dc2626'}`
-                }}>
-                  {item.score}
-                </div>
-                <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{item.criteria}</span>
-              </div>
-              <span style={{
-                fontSize: 12, color: item.score >= 8 ? '#047857' : item.score >= 5 ? '#92400e' : '#be123c',
-                fontWeight: 500, textAlign: 'right', maxWidth: '40%', lineHeight: 1.4
+          {metrics.qualityCriteria.map((item, idx) => {
+            const displayScore = Number.isInteger(item.score) ? item.score : Number(item.score.toFixed(1));
+            const scoreFontSize = String(displayScore).length > 2 ? 12 : 15;
+            return (
+              <div key={idx} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 16px', borderRadius: 12,
+                background: item.score >= 8 ? '#ecfdf5' : item.score >= 5 ? '#fffbeb' : '#fff1f2',
+                border: `1px solid ${item.score >= 8 ? '#a7f3d0' : item.score >= 5 ? '#fde68a' : '#fecdd3'}`,
+                boxShadow: `0 2px 0 ${item.score >= 8 ? '#d1fae5' : item.score >= 5 ? '#fef3c7' : '#ffe4e6'}`
               }}>
-                {item.comment}
-              </span>
-            </div>
-          ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    minWidth: 38, height: 38, borderRadius: 10, padding: '0 4px',
+                    background: getColor(item.score),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: scoreFontSize, fontWeight: 800, color: 'white', flexShrink: 0,
+                    boxShadow: `0 2px 0 ${item.score >= 8 ? '#059669' : item.score >= 5 ? '#d97706' : '#dc2626'}`
+                  }}>
+                    {displayScore}
+                  </div>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{item.criteria}</span>
+                </div>
+                <span style={{
+                  fontSize: 12, color: item.score >= 8 ? '#047857' : item.score >= 5 ? '#92400e' : '#be123c',
+                  fontWeight: 500, textAlign: 'right', maxWidth: '40%', lineHeight: 1.4
+                }}>
+                  {item.comment}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
