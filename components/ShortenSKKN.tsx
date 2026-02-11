@@ -88,8 +88,9 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
         setIsDragOver(false);
     }, []);
 
-    // --- Estimate original page count ---
-    const estimatedOriginalPages = originalText ? Math.round(originalText.split(/\s+/).length / 350) : 0;
+    // --- Estimate original page count (2200 ký tự/trang A4, Times New Roman 12pt) ---
+    const CHARS_PER_PAGE = 2200;
+    const estimatedOriginalPages = originalText ? Math.round(originalText.length / CHARS_PER_PAGE) : 0;
 
     // --- Run shortening ---
     const handleShorten = async () => {
@@ -279,7 +280,7 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
                             <div>
                                 <div style={{ fontWeight: 600, color: '#92400e', fontSize: 14 }}>{fileName}</div>
                                 <div style={{ fontSize: 12, color: '#b45309' }}>
-                                    ~{estimatedOriginalPages} trang • {originalText.split(/\s+/).length.toLocaleString()} từ
+                                    ~{estimatedOriginalPages} trang • {originalText.length.toLocaleString()} ký tự
                                 </div>
                             </div>
                         </div>
@@ -314,7 +315,7 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
                                 }}
                             />
                             <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
-                                <div>trang (~{(targetPages * 350).toLocaleString()} từ)</div>
+                                <div>trang (~{(targetPages * 2200).toLocaleString()} ký tự)</div>
                                 <div style={{ fontSize: 11, color: '#94a3b8' }}>
                                     Giảm {estimatedOriginalPages > 0 ? Math.round((1 - targetPages / estimatedOriginalPages) * 100) : 0}% so với bản gốc
                                 </div>
@@ -398,7 +399,7 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
                                     Rút ngắn thành công!
                                 </div>
                                 <div style={{ fontSize: 12, color: '#15803d' }}>
-                                    ~{Math.round(result.split(/\s+/).length / 350)} trang • {result.split(/\s+/).length.toLocaleString()} từ
+                                    ~{Math.round(result.length / CHARS_PER_PAGE)} trang • {result.length.toLocaleString()} ký tự
                                     (gốc: ~{estimatedOriginalPages} trang)
                                 </div>
                             </div>
