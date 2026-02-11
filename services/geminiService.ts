@@ -704,67 +704,72 @@ Trả về nội dung đã sửa hoàn chỉnh. Định dạng đẹp, chuẩn. 
 };
 
 // ================================================================
-// RÚT NGẮN SKKN THEO SỐ TRANG YÊU CẦU
+// RÚT NGẮN SKKN THEO SỐ TRANG YÊU CẦU (MULTI-PASS)
 // ================================================================
-export const shortenSKKN = async (
-  fullText: string,
-  targetPages: number
-): Promise<string> => {
+
+// Tách SKKN thành các phần lớn dựa trên heading
+function splitIntoSections(text: string): { title: string; content: string }[] {
+  // Tìm các heading chính: PHẦN I, PHẦN II, CHƯƠNG, hoặc heading markdown #
+  const sectionRegex = /^(#{1,2}\s+.+|PHẦN\s+[IVXLC]+[.:].+|CHƯƠNG\s+\d+[.:].+|[IVXLC]+\.\s+.+)/gmi;
+  const matches = [...text.matchAll(sectionRegex)];
+
+  if (matches.length < 2) {
+    // Không đủ heading → trả về 1 phần duy nhất
+    return [{ title: 'Toàn bộ', content: text }];
+  }
+
+  const sections: { title: string; content: string }[] = [];
+
+  for (let i = 0; i < matches.length; i++) {
+    const startIdx = matches[i].index!;
+    const endIdx = i + 1 < matches.length ? matches[i + 1].index! : text.length;
+    const title = matches[i][0].replace(/^#+\s*/, '').trim();
+    const content = text.substring(startIdx, endIdx).trim();
+    sections.push({ title, content });
+  }
+
+  // Nếu có nội dung trước heading đầu tiên (mở đầu, bìa...)
+  const beforeFirst = text.substring(0, matches[0].index!).trim();
+  if (beforeFirst.length > 100) {
+    sections.unshift({ title: 'Phần mở đầu', content: beforeFirst });
+  }
+
+  return sections;
+}
+
+// Rút ngắn 1 phần
+async function shortenOneSection(
+  sectionContent: string,
+  sectionTitle: string,
+  targetChars: number,
+  originalTotalChars: number,
+  targetTotalPages: number
+): Promise<string> {
   const ai = getAI();
 
-  const CHARS_PER_PAGE = 2200; // Times New Roman 12pt, lề 2.5cm, giãn dòng 1.15-1.5
-  const totalCharBudget = targetPages * CHARS_PER_PAGE;
-  const introCharBudget = Math.round(totalCharBudget * 0.10);
-  const solutionCharBudget = Math.round(totalCharBudget * 0.80);
-  const conclusionCharBudget = Math.round(totalCharBudget * 0.10);
-
-  const originalCharCount = fullText.length;
-  const ratio = Math.round((totalCharBudget / originalCharCount) * 100);
-
-  // Gửi tối đa 80K ký tự
-  const truncated = fullText.substring(0, 80000);
-
   const prompt = `
-Bạn là chuyên gia biên tập SKKN. Nhiệm vụ: VIẾT LẠI bản rút gọn SKKN dưới đây.
+Bạn là chuyên gia biên tập SKKN. Nhiệm vụ: VIẾT LẠI phần "${sectionTitle}" của SKKN cho ngắn gọn hơn.
 
-⚠️⚠️⚠️ CẢNH BÁO QUAN TRỌNG NHẤT ⚠️⚠️⚠️
-- KHÔNG ĐƯỢC TÓM TẮT. KHÔNG ĐƯỢC VIẾT "tóm lại", "tóm tắt", "nội dung chính là..."
-- Bạn phải VIẾT RA ĐẦY ĐỦ NỘI DUNG, giống như viết lại 1 bài SKKN hoàn chỉnh
-- Bài viết ra PHẢI DÀI ĐÚNG ~${totalCharBudget.toLocaleString()} ký tự (khoảng ${targetPages} trang A4)
-- QUY TẮC ĐẾM TRANG: 1 trang A4 = 2.200 ký tự (font Times New Roman 12pt, lề 2.5cm, giãn dòng 1.15-1.5)
-- Bản gốc có ~${originalCharCount.toLocaleString()} ký tự (~${Math.round(originalCharCount / CHARS_PER_PAGE)} trang) → bạn cần giữ lại ~${ratio}% nội dung
-- Nếu bài viết ra NGẮN HƠN ${Math.round(totalCharBudget * 0.85).toLocaleString()} ký tự = BẠN ĐÃ LÀM SAI
+⚠️ YÊU CẦU BẮT BUỘC VỀ ĐỘ DÀI:
+- Phần này hiện có ${sectionContent.length.toLocaleString()} ký tự
+- Bạn PHẢI viết lại với khoảng ${targetChars.toLocaleString()} ký tự (±10%)
+- KHÔNG ĐƯỢC viết ngắn hơn ${Math.round(targetChars * 0.85).toLocaleString()} ký tự
+- KHÔNG ĐƯỢC viết dài hơn ${Math.round(targetChars * 1.15).toLocaleString()} ký tự
+- 1 trang A4 = 2.200 ký tự (Times New Roman 12pt)
 
-===== YÊU CẦU SỐ LƯỢNG KÝ TỰ (BẮT BUỘC) =====
-TỔNG: ${totalCharBudget.toLocaleString()} ký tự = ${targetPages} trang A4
-Phân bổ:
-• Mở đầu + Cơ sở lý luận + Thực trạng: ~${introCharBudget.toLocaleString()} ký tự (10%)
-• Giải pháp/Biện pháp (NỘI DUNG CHÍNH): ~${solutionCharBudget.toLocaleString()} ký tự (80%)
-• Kết quả + Kết luận + Kiến nghị: ~${conclusionCharBudget.toLocaleString()} ký tự (10%)
-===================================================
+QUY TẮC:
+1. GIỮ NGUYÊN tất cả tiêu đề, đề mục con
+2. Viết lại nội dung ngắn gọn hơn nhưng ĐẦY ĐỦ Ý CHÍNH
+3. Giữ: số liệu, bảng biểu, công thức toán, ví dụ hay nhất
+4. Cắt: lặp ý, giải thích thừa, trích dẫn dài, câu sáo rỗng
+5. KHÔNG ĐƯỢC tóm tắt — phải VIẾT LẠI đầy đủ nội dung
 
-CÁCH THỰC HIỆN:
-1. Đọc toàn bộ SKKN gốc
-2. Giữ nguyên TẤT CẢ tiêu đề phần, đề mục con (PHẦN I, II, 1., 2., Giải pháp 1, ...)
-3. Với MỖI đề mục: viết lại nội dung ngắn gọn hơn nhưng VẪN ĐẦY ĐỦ Ý:
-   - Giữ ý chính, số liệu, ví dụ minh họa hay nhất
-   - Cắt bỏ: lặp ý, giải thích thừa, trích dẫn dài
-   - Gộp câu cùng ý thành câu ngắn hơn
-4. Giữ nguyên: công thức toán ($...$), bảng biểu, danh sách
-5. Với phần Giải pháp: GIỮ TẤT CẢ giải pháp (không xóa giải pháp nào)
+ĐỊNH DẠNG: Markdown. KHÔNG ghi chú thích. Bắt đầu viết NGAY:
 
-KIỂM TRA TRƯỚC KHI TRẢ VỀ:
-□ Tổng ký tự đã đạt ~${totalCharBudget.toLocaleString()} chưa? (phải ≥ ${Math.round(totalCharBudget * 0.85).toLocaleString()} ký tự)
-□ Đã giữ tất cả đề mục chưa?
-□ Mỗi phần có đủ nội dung theo ngân sách chưa?
-
-ĐỊNH DẠNG: Viết ra Markdown hoàn chỉnh. KHÔNG ghi chú giải thích. KHÔNG ghi "Ước tính: X ký tự".
-Bắt đầu viết NGAY nội dung SKKN rút gọn:
-
-===== VĂN BẢN SKKN GỐC =====
-${truncated}
-===== HẾT VĂN BẢN =====
-  `;
+===== NỘI DUNG PHẦN GỐC =====
+${sectionContent}
+===== HẾT =====
+`;
 
   return callWithFallback(async (model) => {
     const response = await ai.models.generateContent({
@@ -772,9 +777,62 @@ ${truncated}
       contents: prompt,
       config: {
         temperature: 0.2,
-        maxOutputTokens: 65536,
+        maxOutputTokens: 16384,
       },
     });
     return response.text || "";
   });
+}
+
+export const shortenSKKN = async (
+  fullText: string,
+  targetPages: number,
+  onProgress?: (msg: string) => void
+): Promise<string> => {
+  const CHARS_PER_PAGE = 2200;
+  const totalCharBudget = targetPages * CHARS_PER_PAGE;
+  const originalCharCount = fullText.length;
+
+  // Bước 1: Tách thành các phần
+  onProgress?.('Đang phân tích cấu trúc SKKN...');
+  const sections = splitIntoSections(fullText);
+
+  if (sections.length <= 1) {
+    // Không tách được → gọi 1 lần duy nhất
+    onProgress?.('Đang rút ngắn toàn bộ...');
+    return shortenOneSection(fullText, 'Toàn bộ SKKN', totalCharBudget, originalCharCount, targetPages);
+  }
+
+  // Bước 2: Tính budget ký tự cho mỗi phần theo tỉ lệ
+  const totalOriginalChars = sections.reduce((sum, s) => sum + s.content.length, 0);
+  const sectionBudgets = sections.map(s => ({
+    ...s,
+    charBudget: Math.round((s.content.length / totalOriginalChars) * totalCharBudget)
+  }));
+
+  // Bước 3: Rút ngắn từng phần
+  const results: string[] = [];
+  for (let i = 0; i < sectionBudgets.length; i++) {
+    const sec = sectionBudgets[i];
+    onProgress?.(`Đang rút ngắn phần ${i + 1}/${sectionBudgets.length}: ${sec.title.substring(0, 50)}...`);
+
+    // Nếu phần đã ngắn hơn budget → giữ nguyên
+    if (sec.content.length <= sec.charBudget * 1.1) {
+      results.push(sec.content);
+      continue;
+    }
+
+    const shortened = await shortenOneSection(
+      sec.content,
+      sec.title,
+      sec.charBudget,
+      originalCharCount,
+      targetPages
+    );
+    results.push(shortened);
+  }
+
+  // Bước 4: Ghép kết quả
+  onProgress?.('Đang hoàn thiện...');
+  return results.join('\n\n---\n\n');
 };
