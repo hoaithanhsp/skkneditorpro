@@ -717,57 +717,47 @@ export const shortenSKKN = async (
   const solutionWordBudget = Math.round(totalWordBudget * 0.80);
   const conclusionWordBudget = Math.round(totalWordBudget * 0.10);
 
-  const truncated = fullText.substring(0, 60000);
+  const originalWordCount = fullText.split(/\s+/).length;
+  const ratio = Math.round((totalWordBudget / originalWordCount) * 100);
+
+  // Gửi tối đa 80K ký tự
+  const truncated = fullText.substring(0, 80000);
 
   const prompt = `
-Bạn là chuyên gia biên tập Sáng kiến Kinh nghiệm (SKKN) với 20 năm kinh nghiệm. 
+Bạn là chuyên gia biên tập SKKN. Nhiệm vụ: VIẾT LẠI bản rút gọn SKKN dưới đây.
 
-NHIỆM VỤ: RÚT NGẮN toàn bộ SKKN dưới đây xuống còn khoảng ${targetPages} trang (~${totalWordBudget} từ).
+⚠️⚠️⚠️ CẢNH BÁO QUAN TRỌNG NHẤT ⚠️⚠️⚠️
+- KHÔNG ĐƯỢC TÓM TẮT. KHÔNG ĐƯỢC VIẾT "tóm lại", "tóm tắt", "nội dung chính là..."
+- Bạn phải VIẾT RA ĐẦY ĐỦ NỘI DUNG, giống như viết lại 1 bài SKKN hoàn chỉnh
+- Bài viết ra PHẢI DÀI ĐÚNG ~${totalWordBudget} từ (khoảng ${targetPages} trang A4)
+- Bản gốc có ~${originalWordCount} từ → bạn cần giữ lại ~${ratio}% nội dung
+- Nếu bài viết ra NGẮN HƠN ${Math.round(totalWordBudget * 0.8)} từ = BẠN ĐÃ LÀM SAI
 
-===== NGÂN SÁCH TỪ THEO TỈ LỆ =====
-- Mở đầu + Cơ sở lý luận + Thực trạng: ~${introWordBudget} từ (10%)
-- Nội dung Giải pháp/Biện pháp (CHÍNH): ~${solutionWordBudget} từ (80%)
-- Kết quả + Kết luận + Kiến nghị: ~${conclusionWordBudget} từ (10%)
-=====================================
+===== YÊU CẦU SỐ LƯỢNG TỪ (BẮT BUỘC) =====
+TỔNG: ${totalWordBudget} từ (${targetPages} trang)
+Phân bổ:
+• Mở đầu + Cơ sở lý luận + Thực trạng: ~${introWordBudget} từ (10%) → viết ít nhất ${introWordBudget} từ cho phần này
+• Giải pháp/Biện pháp (NỘI DUNG CHÍNH): ~${solutionWordBudget} từ (80%) → viết ít nhất ${solutionWordBudget} từ cho phần này
+• Kết quả + Kết luận + Kiến nghị: ~${conclusionWordBudget} từ (10%) → viết ít nhất ${conclusionWordBudget} từ cho phần này
+==============================================
 
-QUY TẮC BẮT BUỘC:
+CÁCH THỰC HIỆN:
+1. Đọc toàn bộ SKKN gốc
+2. Giữ nguyên TẤT CẢ tiêu đề phần, đề mục con (PHẦN I, II, 1., 2., Giải pháp 1, ...)
+3. Với MỖI đề mục: viết lại nội dung ngắn gọn hơn nhưng VẪN ĐẦY ĐỦ Ý:
+   - Giữ ý chính, số liệu, ví dụ minh họa hay nhất
+   - Cắt bỏ: lặp ý, giải thích thừa, trích dẫn dài
+   - Gộp câu cùng ý thành câu ngắn hơn
+4. Giữ nguyên: công thức toán ($...$), bảng biểu, danh sách
+5. Với phần Giải pháp: GIỮ TẤT CẢ giải pháp (không xóa giải pháp nào), mỗi giải pháp viết ${Math.round(solutionWordBudget / 5)}-${Math.round(solutionWordBudget / 3)} từ
 
-1. GIỮ NGUYÊN CẤU TRÚC ĐỀ MỤC:
-   - Giữ tất cả tiêu đề phần (PHẦN I, II, ...)
-   - Giữ tất cả đề mục con (1., 2., Giải pháp 1, Biện pháp 1, ...)
-   - Chỉ rút ngắn NỘI DUNG, không xóa đề mục
+KIỂM TRA TRƯỚC KHI TRẢ VỀ:
+□ Tổng số từ đã đạt ~${totalWordBudget} từ chưa? (phải ≥ ${Math.round(totalWordBudget * 0.85)} từ)
+□ Đã giữ tất cả đề mục chưa?
+□ Mỗi phần có đủ nội dung theo ngân sách chưa?
 
-2. GIỮ NGUYÊN ĐỊNH DẠNG:
-   - Công thức toán học (LaTeX: $...$, \\frac, \\sqrt)
-   - Mô tả hình ảnh (có thể xóa BỚT hình không cần thiết nhưng KHÔNG vỡ cấu trúc)
-   - Bảng biểu quan trọng (số liệu, so sánh)
-   - In đậm (**text**), in nghiêng (*text**)
-   - Danh sách (bullet points, numbered lists)
-
-3. CHIẾN LƯỢC RÚT NGẮN:
-   - ƯU TIÊN GIỮ: Ý chính, số liệu, luận điểm cốt lõi, bảng biểu, công thức
-   - CẮT BỎ: Ý phụ, giải thích dài dòng, ví dụ trùng lặp, trích dẫn dài, hình ảnh thừa
-   - Gộp nhiều câu cùng ý thành 1 câu ngắn gọn
-   - Loại bỏ câu sáo rỗng
-   - Rút gọn phần lý luận chung, giữ phần cụ thể
-   - Với Giải pháp: giữ TẤT CẢ giải pháp, chỉ rút ngắn mô tả mỗi giải pháp
-   - Nếu có N giải pháp → ~${Math.round(solutionWordBudget / 5)} từ/giải pháp (ước 5 GP)
-
-4. PHẦN MỞ ĐẦU + THỰC TRẠNG (10%):
-   - Chỉ giữ lý do, bối cảnh cốt lõi, số liệu quan trọng nhất
-   - Loại bỏ trích dẫn lý luận dài
-
-5. PHẦN KẾT LUẬN (10%):
-   - Tóm tắt kết quả chính (giữ bảng số liệu nếu có)
-   - Kiến nghị ngắn gọn
-
-6. KIỂM TRA SAU RÚT NGẮN:
-   - Số từ ước tính gần ${totalWordBudget} (±10%)
-   - Không thiếu đề mục
-   - Công thức toán học nguyên vẹn
-   - Logic mạch lạc
-
-ĐỊNH DẠNG ĐẦU RA: Toàn bộ SKKN đã rút ngắn — Markdown, bảng biểu markdown table, công thức LaTeX.
+ĐỊNH DẠNG: Viết ra Markdown hoàn chỉnh. KHÔNG ghi chú giải thích. KHÔNG ghi "Ước tính: X từ".
+Bắt đầu viết NGAY nội dung SKKN rút gọn:
 
 ===== VĂN BẢN SKKN GỐC =====
 ${truncated}
@@ -779,7 +769,8 @@ ${truncated}
       model,
       contents: prompt,
       config: {
-        temperature: 0.1,
+        temperature: 0.2,
+        maxOutputTokens: 65536,
       },
     });
     return response.text || "";
