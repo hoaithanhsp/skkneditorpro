@@ -209,7 +209,7 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
                   fontSize: 12, color: item.score >= 8 ? '#047857' : item.score >= 5 ? '#92400e' : '#be123c',
                   fontWeight: 500, textAlign: 'right', maxWidth: '40%', lineHeight: 1.4
                 }}>
-                  {item.comment}
+                  {item.comment || 'Chưa có nhận xét chi tiết'}
                 </span>
               </div>
             );
