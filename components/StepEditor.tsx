@@ -23,6 +23,10 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
 
   const activeSection = sections.find(s => s.id === activeTab);
 
+  // Safe level check — treat undefined/0 as level 1
+  const getLevel = (s: SectionContent) => s.level || 1;
+  const getParentId = (s: SectionContent) => s.parentId || '';
+
   const handleGetSuggestions = async (sectionId: string) => {
     const section = sections.find(s => s.id === sectionId);
     if (!section || !section.originalContent) return;
@@ -78,9 +82,70 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
 
   const completedCount = sections.filter(s => s.refinedContent).length;
 
-  // Group sections: parent + children
-  const parentSections = sections.filter(s => s.level === 1);
-  const childSections = (parentId: string) => sections.filter(s => s.parentId === parentId);
+  // Get children of any section by parentId
+  const getChildren = (parentId: string) => sections.filter(s => getParentId(s) === parentId);
+
+  // Check if any section has deeper nesting than level 1
+  const hasHierarchy = sections.some(s => getLevel(s) >= 2);
+
+  // Recursive tab renderer
+  const renderSectionTab = (section: SectionContent, depth: number = 0) => {
+    const children = getChildren(section.id);
+    const isActive = activeTab === section.id;
+    const hasActiveChild = children.some(c => c.id === activeTab || getChildren(c.id).some(gc => gc.id === activeTab));
+    const indent = depth * 18;
+    const fontSize = Math.max(11, 14 - depth);
+
+    return (
+      <div key={section.id}>
+        <button
+          onClick={() => setActiveTab(section.id)}
+          style={{
+            width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: `${Math.max(4, 8 - depth)}px 12px`, paddingLeft: 12 + indent,
+            borderRadius: depth === 0 ? 6 : 0, border: 'none', cursor: 'pointer',
+            fontWeight: isActive ? 700 : hasActiveChild ? 600 : depth === 0 ? 500 : 400,
+            fontSize,
+            background: isActive ? (depth === 0 ? '#f0fdfa' : '#ecfdf5') : hasActiveChild ? '#fafffe' : 'transparent',
+            borderLeft: isActive
+              ? `${Math.max(2, 3 - depth)}px solid #14b8a6`
+              : hasActiveChild
+                ? `${Math.max(2, 3 - depth)}px solid #99f6e4`
+                : `${Math.max(2, 3 - depth)}px solid transparent`,
+            color: isActive ? '#0d9488' : '#334155',
+            transition: 'all 0.2s'
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {depth > 0 && <span style={{ color: '#cbd5e1', fontSize: 10 }}>{'↳'.repeat(Math.min(depth, 3))}</span>}
+            <span>{section.title}</span>
+            {section.refinedContent && <Check size={depth === 0 ? 12 : 10} style={{ color: '#10b981', flexShrink: 0 }} />}
+          </span>
+          {children.length > 0 && (
+            <span style={{
+              fontSize: 9, padding: '1px 6px', borderRadius: 999, flexShrink: 0, marginLeft: 4,
+              background: '#f0fdfa', color: '#0d9488', border: '1px solid #ccfbf1'
+            }}>
+              {children.length}
+            </span>
+          )}
+        </button>
+        {/* Render children recursively */}
+        {children.map(child => renderSectionTab(child, depth + 1))}
+      </div>
+    );
+  };
+
+  // Edge case: no sections at all
+  if (!sections || sections.length === 0) {
+    return (
+      <div className="animate-fade-in" style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <Sparkles size={48} color="#94a3b8" style={{ marginBottom: 16, opacity: 0.4 }} />
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#334155' }}>Chưa có nội dung phần nào</h3>
+        <p style={{ color: '#94a3b8', fontSize: 14 }}>Vui lòng quay lại bước Tải lên để phân tích SKKN.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -90,6 +155,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
           <h2 style={{ fontSize: 22, fontWeight: 800, color: '#134e4a', margin: 0 }}>Sửa nội dung từng phần</h2>
           <p style={{ fontSize: 13, color: '#64748b', margin: 0, marginTop: 4 }}>
             Đã sửa <span style={{ color: '#10b981', fontWeight: 700 }}>{completedCount}/{sections.length}</span> phần
+            {selectedTitle && <span style={{ color: '#94a3b8' }}> · Đề tài: "{selectedTitle.substring(0, 50)}..."</span>}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -105,96 +171,39 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
         <div className="progress-bar-fill primary" style={{ width: `${(completedCount / sections.length) * 100}%` }}></div>
       </div>
 
-      {/* Hierarchical Tabs */}
+      {/* Section Tabs */}
       <div style={{
         display: 'flex', flexDirection: 'column', gap: 2,
         borderBottom: '1px solid #e2e8f0', paddingBottom: 4,
-        maxHeight: 220, overflowY: 'auto'
+        maxHeight: 240, overflowY: 'auto'
       }}>
-        {parentSections.map(parent => {
-          const children = childSections(parent.id);
-          const isParentActive = activeTab === parent.id;
-          const isChildActive = children.some(c => c.id === activeTab);
-
-          return (
-            <div key={parent.id}>
-              {/* Parent tab */}
-              <button
-                onClick={() => setActiveTab(parent.id)}
-                className={`tab-btn ${isParentActive ? 'active' : ''}`}
-                style={{
-                  width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  fontWeight: isParentActive || isChildActive ? 700 : 500,
-                  background: isParentActive ? '#f0fdfa' : isChildActive ? '#fafffe' : 'transparent',
-                  borderLeft: isParentActive ? '3px solid #14b8a6' : isChildActive ? '3px solid #99f6e4' : '3px solid transparent'
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {parent.title}
-                  {parent.refinedContent && <Check size={12} style={{ color: '#10b981' }} />}
-                </span>
-                {children.length > 0 && (
-                  <span className="badge badge-primary" style={{ fontSize: 9, padding: '1px 6px' }}>
-                    {children.length} mục con
-                  </span>
-                )}
-              </button>
-
-              {/* Child tabs (always visible) */}
-              {children.length > 0 && (
-                <div style={{ paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {children.map(child => (
-                    <button
-                      key={child.id}
-                      onClick={() => setActiveTab(child.id)}
-                      className={`tab-btn ${activeTab === child.id ? 'active' : ''}`}
-                      style={{
-                        width: '100%', textAlign: 'left', fontSize: 12,
-                        padding: '6px 12px',
-                        borderLeft: activeTab === child.id ? '2px solid #14b8a6' : '2px solid #e2e8f0',
-                        background: activeTab === child.id ? '#ecfdf5' : 'transparent'
-                      }}
-                    >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ color: '#94a3b8' }}>↳</span>
-                        {child.title}
-                        {child.refinedContent && <Check size={10} style={{ color: '#10b981' }} />}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {/* If no hierarchy, show flat tabs */}
-        {parentSections.length === 0 && sections.map(section => (
-          <button
-            key={section.id}
-            onClick={() => setActiveTab(section.id)}
-            className={`tab-btn ${activeTab === section.id ? 'active' : ''}`}
-            style={{ textAlign: 'left' }}
-          >
-            {section.title}
-            {section.refinedContent && <Check size={12} style={{ marginLeft: 4, color: '#10b981' }} />}
-          </button>
-        ))}
+        {hasHierarchy ? (
+          /* Recursive Multi-level Tabs */
+          sections.filter(s => getLevel(s) === 1 || getParentId(s) === '').map(root => renderSectionTab(root, 0))
+        ) : (
+          /* Flat Tabs (no hierarchy) */
+          sections.map(section => renderSectionTab(section, 0))
+        )}
       </div>
 
       {/* Editor Area */}
       {activeSection && (
-        <div style={{ display: 'grid', gridTemplateColumns: showSuggestions ? '1fr 1fr 320px' : '1fr 1fr', gap: 16, minHeight: 'calc(100vh - 420px)' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: showSuggestions ? '1fr 1fr 320px' : '1fr 1fr',
+          gap: 16, minHeight: 400
+        }}>
           {/* Original Panel */}
-          <div className="editor-panel">
+          <div className="editor-panel" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="panel-header" style={{ color: '#475569' }}>
               <span>📄 Nội dung Gốc</span>
-              {activeSection.level === 2 && (
+              {getLevel(activeSection) === 2 && (
                 <span className="badge badge-primary" style={{ fontSize: 9 }}>Mục con</span>
               )}
             </div>
-            <div className="panel-body" style={{ backgroundColor: '#fafafa' }}>
+            <div className="panel-body" style={{ backgroundColor: '#fafafa', flex: 1, overflow: 'auto' }}>
               <p style={{
-                whiteSpace: 'pre-wrap', fontSize: 13, color: '#64748b', lineHeight: 1.8
+                whiteSpace: 'pre-wrap', fontSize: 13, color: '#64748b', lineHeight: 1.8, margin: 0
               }}>
                 {activeSection.originalContent || "(Không tìm thấy nội dung phần này)"}
               </p>
@@ -202,7 +211,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
           </div>
 
           {/* Refined Panel */}
-          <div className="editor-panel" style={{ borderColor: '#99f6e4' }}>
+          <div className="editor-panel" style={{ borderColor: '#99f6e4', display: 'flex', flexDirection: 'column' }}>
             <div className="panel-header" style={{ color: '#0d9488', background: '#f0fdfa', justifyContent: 'space-between' }}>
               <span>✨ Nội dung Đề xuất (AI)</span>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -213,7 +222,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
                       className="btn-secondary btn-sm"
                       title="Tải phần này"
                     >
-                      <Download size={12} /> Tải phần này
+                      <Download size={12} /> Tải
                     </button>
                     <button
                       onClick={() => onRefineSection(activeSection.id)}
@@ -234,7 +243,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
                 )}
               </div>
             </div>
-            <div className="panel-body" style={{ position: 'relative' }}>
+            <div className="panel-body" style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
               {isProcessing === activeSection.id ? (
                 <div style={{
                   position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -253,11 +262,16 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
                 <textarea
                   value={activeSection.refinedContent}
                   onChange={e => handleContentEdit(activeSection.id, e.target.value)}
-                  style={{ lineHeight: 1.8 }}
+                  style={{
+                    width: '100%', flex: 1, minHeight: 300,
+                    border: 'none', outline: 'none', resize: 'vertical',
+                    fontSize: 13, lineHeight: 1.8, color: '#334155',
+                    padding: 0, fontFamily: 'inherit', background: 'transparent'
+                  }}
                 />
               ) : (
                 <div style={{
-                  height: '100%', display: 'flex', flexDirection: 'column',
+                  flex: 1, display: 'flex', flexDirection: 'column',
                   alignItems: 'center', justifyContent: 'center', color: '#94a3b8'
                 }}>
                   <Sparkles size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
@@ -271,10 +285,10 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
 
           {/* Suggestions Panel */}
           {showSuggestions && (
-            <div className="editor-panel" style={{ borderColor: '#fde68a' }}>
+            <div className="editor-panel" style={{ borderColor: '#fde68a', display: 'flex', flexDirection: 'column' }}>
               <div className="panel-header" style={{ color: '#92400e', background: '#fffbeb' }}>
                 <span>💡 Gợi ý AI</span>
-                {!activeSection.suggestions?.length && !loadingSuggestions && (
+                {(!activeSection.suggestions || activeSection.suggestions.length === 0) && !loadingSuggestions && (
                   <button
                     onClick={() => handleGetSuggestions(activeSection.id)}
                     className="btn-secondary btn-sm"
@@ -283,7 +297,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
                   </button>
                 )}
               </div>
-              <div className="panel-body">
+              <div className="panel-body" style={{ flex: 1, overflow: 'auto' }}>
                 {loadingSuggestions === activeSection.id ? (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8 }}>
                     <Loader2 size={24} color="#f59e0b" className="animate-spin-slow" />
@@ -296,7 +310,8 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
                       const isExpanded = expandedSuggestion === sug.id;
                       return (
                         <div key={sug.id || idx} className="suggestion-card" style={{
-                          borderColor: `${typeInfo.color}30`
+                          borderColor: `${typeInfo.color}30`, padding: '10px 12px', borderRadius: 8,
+                          border: `1px solid ${typeInfo.color}30`, background: 'white'
                         }}>
                           <div
                             onClick={() => setExpandedSuggestion(isExpanded ? null : sug.id)}
@@ -357,7 +372,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
                     alignItems: 'center', justifyContent: 'center', color: '#94a3b8', textAlign: 'center'
                   }}>
                     <Lightbulb size={24} style={{ marginBottom: 8, opacity: 0.4 }} />
-                    <p style={{ fontSize: 12, maxWidth: 200 }}>
+                    <p style={{ fontSize: 12, maxWidth: 200, margin: 0 }}>
                       Nhấn "Phân tích" để AI đánh giá tính khoa học, sáng tạo, tính mới và chống đạo văn.
                     </p>
                   </div>
@@ -365,6 +380,13 @@ const StepEditor: React.FC<StepEditorProps> = ({ sections, onRefineSection, onFi
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* No active section fallback */}
+      {!activeSection && sections.length > 0 && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+          <p>Chọn một phần từ danh sách bên trên để bắt đầu sửa.</p>
         </div>
       )}
 

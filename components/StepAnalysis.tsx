@@ -185,22 +185,27 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
           {metrics.qualityCriteria.map((item, idx) => (
             <div key={idx} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '10px 14px', borderRadius: 10,
-              background: '#f8fafc',
-              borderBottom: '1px solid #f1f5f9'
+              padding: '12px 16px', borderRadius: 12,
+              background: item.score >= 8 ? '#ecfdf5' : item.score >= 5 ? '#fffbeb' : '#fff1f2',
+              border: `1px solid ${item.score >= 8 ? '#a7f3d0' : item.score >= 5 ? '#fde68a' : '#fecdd3'}`,
+              boxShadow: `0 2px 0 ${item.score >= 8 ? '#d1fae5' : item.score >= 5 ? '#fef3c7' : '#ffe4e6'}`
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
                 <div style={{
-                  width: 28, height: 28, borderRadius: 8,
-                  background: `${getColor(item.score)}12`,
+                  width: 36, height: 36, borderRadius: 10,
+                  background: getColor(item.score),
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 12, fontWeight: 700, color: getColor(item.score), flexShrink: 0
+                  fontSize: 15, fontWeight: 800, color: 'white', flexShrink: 0,
+                  boxShadow: `0 2px 0 ${item.score >= 8 ? '#059669' : item.score >= 5 ? '#d97706' : '#dc2626'}`
                 }}>
                   {item.score}
                 </div>
-                <span style={{ fontSize: 13, fontWeight: 500, color: '#334155' }}>{item.criteria}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{item.criteria}</span>
               </div>
-              <span style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', textAlign: 'right', maxWidth: '40%' }}>
+              <span style={{
+                fontSize: 12, color: item.score >= 8 ? '#047857' : item.score >= 5 ? '#92400e' : '#be123c',
+                fontWeight: 500, textAlign: 'right', maxWidth: '40%', lineHeight: 1.4
+              }}>
                 {item.comment}
               </span>
             </div>
