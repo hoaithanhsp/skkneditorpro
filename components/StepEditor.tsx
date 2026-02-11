@@ -1,11 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { SectionContent, SectionSuggestion, SectionEditSuggestion, UserRequirements } from '../types';
 import { SUGGESTION_TYPES } from '../constants';
-import { Check, Loader2, RefreshCw, FileDown, Lightbulb, Sparkles, Eye, EyeOff, ChevronDown, ChevronUp, Download, Search, Plus, Minus, Pencil, Replace, CheckCircle2, Upload, ClipboardPaste, BookOpen } from 'lucide-react';
+import { Check, Loader2, RefreshCw, FileDown, Lightbulb, Sparkles, Eye, EyeOff, ChevronDown, ChevronUp, Download, Search, Plus, Minus, Pencil, Replace, CheckCircle2, Upload, ClipboardPaste, BookOpen, ArrowRight, FileText, Trash2, Settings2 } from 'lucide-react';
 import * as geminiService from '../services/geminiService';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
-import UserRequirementsPanel from './UserRequirementsPanel';
+import { ReferenceDocument } from '../types';
 
 interface StepEditorProps {
   sections: SectionContent[];
@@ -42,39 +42,20 @@ const StepEditor: React.FC<StepEditorProps> = ({
   onUpdateSections, userRequirements, onUpdateRequirements
 }) => {
   const [activeTab, setActiveTab] = useState<string>(sections[0]?.id || '');
-  const [showSuggestions, setShowSuggestions] = useState(true);
-  const [loadingSuggestions, setLoadingSuggestions] = useState<string | null>(null);
   const [expandedSuggestion, setExpandedSuggestion] = useState<string | null>(null);
   const [loadingDeepAnalysis, setLoadingDeepAnalysis] = useState<string | null>(null);
+  const [loadingRefineWithAnalysis, setLoadingRefineWithAnalysis] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<'paste' | null>(null);
   const [pasteContent, setPasteContent] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const sectionFileInputRef = useRef<HTMLInputElement>(null);
+  const refDocFileInputRef = useRef<HTMLInputElement>(null);
 
   const activeSection = sections.find(s => s.id === activeTab);
 
   const getLevel = (s: SectionContent) => s.level || 1;
   const getParentId = (s: SectionContent) => s.parentId || '';
 
-  // --- OLD suggestions (quick analysis) ---
-  const handleGetSuggestions = async (sectionId: string) => {
-    const section = sections.find(s => s.id === sectionId);
-    if (!section || !section.originalContent) return;
-
-    setLoadingSuggestions(sectionId);
-    try {
-      const suggestions = await geminiService.generateSectionSuggestions(
-        section.title, section.originalContent, selectedTitle
-      );
-      onUpdateSections(sections.map(s =>
-        s.id === sectionId ? { ...s, suggestions } : s
-      ));
-    } catch (err) {
-      console.error('Failed to get suggestions:', err);
-    }
-    setLoadingSuggestions(null);
-  };
-
-  // --- NEW deep analysis with context ---
+  // --- Deep analysis (Bước 2) ---
   const handleDeepAnalysis = async (sectionId: string) => {
     const section = sections.find(s => s.id === sectionId);
     if (!section) return;
@@ -102,78 +83,48 @@ const StepEditor: React.FC<StepEditorProps> = ({
     setLoadingDeepAnalysis(null);
   };
 
-  // --- Apply a single edit suggestion ---
-  const handleApplySuggestion = (sectionId: string, suggestionId: string) => {
+  // --- Đồng ý sửa dựa trên phân tích (Bước 3) ---
+  const handleRefineWithAnalysis = async (sectionId: string) => {
     const section = sections.find(s => s.id === sectionId);
-    if (!section) return;
+    if (!section || !section.editSuggestions || section.editSuggestions.length === 0) return;
 
-    const sug = section.editSuggestions.find(s => s.id === suggestionId);
-    if (!sug || sug.applied) return;
+    const content = section.refinedContent || section.originalContent;
+    if (!content) return;
 
-    let content = section.refinedContent || section.originalContent;
+    setLoadingRefineWithAnalysis(sectionId);
+    try {
+      const skknContext = {
+        currentTitle,
+        selectedTitle,
+        allSectionTitles: sections.map(s => s.title),
+        overallAnalysisSummary
+      };
 
-    if (sug.action === 'replace' || sug.action === 'modify') {
-      if (sug.originalText && content.includes(sug.originalText)) {
-        content = content.replace(sug.originalText, sug.suggestedText);
-      } else {
-        // Fallback: append as note
-        content += `\n\n[ĐỀ XUẤT SỬA - ${sug.label}]\n${sug.suggestedText}`;
-      }
-    } else if (sug.action === 'add') {
-      content += `\n\n${sug.suggestedText}`;
-    } else if (sug.action === 'remove') {
-      if (sug.originalText && content.includes(sug.originalText)) {
-        content = content.replace(sug.originalText, '').replace(/\n{3,}/g, '\n\n').trim();
-      }
+      const refined = await geminiService.refineSectionWithAnalysis(
+        section.title, content, selectedTitle || currentTitle,
+        section.editSuggestions, userRequirements, skknContext
+      );
+
+      onUpdateSections(sections.map(s =>
+        s.id === sectionId ? {
+          ...s,
+          refinedContent: refined,
+          editSuggestions: s.editSuggestions.map(es => ({ ...es, applied: true }))
+        } : s
+      ));
+    } catch (err) {
+      console.error('Refine with analysis failed:', err);
     }
-
-    onUpdateSections(sections.map(s =>
-      s.id === sectionId ? {
-        ...s,
-        refinedContent: content,
-        editSuggestions: s.editSuggestions.map(es =>
-          es.id === suggestionId ? { ...es, applied: true } : es
-        )
-      } : s
-    ));
+    setLoadingRefineWithAnalysis(null);
   };
 
-  // --- Apply all suggestions ---
-  const handleApplyAll = (sectionId: string) => {
-    const section = sections.find(s => s.id === sectionId);
-    if (!section) return;
-
-    let content = section.refinedContent || section.originalContent;
-    const updatedSuggestions = section.editSuggestions.map(sug => {
-      if (sug.applied) return sug;
-
-      if (sug.action === 'replace' || sug.action === 'modify') {
-        if (sug.originalText && content.includes(sug.originalText)) {
-          content = content.replace(sug.originalText, sug.suggestedText);
-        }
-      } else if (sug.action === 'add') {
-        content += `\n\n${sug.suggestedText}`;
-      } else if (sug.action === 'remove') {
-        if (sug.originalText && content.includes(sug.originalText)) {
-          content = content.replace(sug.originalText, '').replace(/\n{3,}/g, '\n\n').trim();
-        }
-      }
-      return { ...sug, applied: true };
-    });
-
-    onUpdateSections(sections.map(s =>
-      s.id === sectionId ? { ...s, refinedContent: content, editSuggestions: updatedSuggestions } : s
-    ));
-  };
-
-  // --- Upload/paste content for a section ---
+  // --- Upload file nội dung cho section ---
   const handleUploadSectionFile = async (e: React.ChangeEvent<HTMLInputElement>, sectionId: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
       let content = await file.text();
-      // Clean XML if docx
       if (content.includes('<?xml') || content.includes('<w:')) {
         content = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       }
@@ -184,7 +135,7 @@ const StepEditor: React.FC<StepEditorProps> = ({
     } catch (err) {
       console.error('Error reading section file:', err);
     }
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (sectionFileInputRef.current) sectionFileInputRef.current.value = '';
   };
 
   const handlePasteContent = (sectionId: string) => {
@@ -200,6 +151,57 @@ const StepEditor: React.FC<StepEditorProps> = ({
     onUpdateSections(sections.map(s =>
       s.id === sectionId ? { ...s, refinedContent: newContent } : s
     ));
+  };
+
+  // --- Upload tài liệu tham khảo ---
+  const handleRefDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    for (const file of Array.from(files) as File[]) {
+      try {
+        let content = '';
+        const ext = file.name.split('.').pop()?.toLowerCase();
+
+        if (ext === 'txt' || ext === 'md') {
+          content = await file.text();
+        } else if (ext === 'pdf') {
+          content = await file.text();
+          if (content.includes('%PDF')) {
+            content = `[File PDF: ${file.name} - Vui lòng dán nội dung text từ file PDF vào ô bên dưới]`;
+          }
+        } else {
+          content = await file.text();
+          if (content.includes('<?xml') || content.includes('<w:')) {
+            content = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          }
+        }
+
+        const isExercise = /bài tập|đề thi|đề kiểm tra|exercise|test|exam/i.test(file.name);
+
+        const newDoc: ReferenceDocument = {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 4),
+          name: file.name,
+          content: content.substring(0, 15000),
+          type: isExercise ? 'exercise' : 'document'
+        };
+
+        onUpdateRequirements({
+          ...userRequirements,
+          referenceDocuments: [...userRequirements.referenceDocuments, newDoc]
+        });
+      } catch (err) {
+        console.error('Error reading ref doc:', err);
+      }
+    }
+    if (refDocFileInputRef.current) refDocFileInputRef.current.value = '';
+  };
+
+  const handleRemoveRefDoc = (docId: string) => {
+    onUpdateRequirements({
+      ...userRequirements,
+      referenceDocuments: userRequirements.referenceDocuments.filter(d => d.id !== docId)
+    });
   };
 
   // --- Download single section as DOCX ---
@@ -292,7 +294,9 @@ const StepEditor: React.FC<StepEditorProps> = ({
     );
   }
 
-  const hasRefDocs = userRequirements.referenceDocuments.length > 0;
+  const hasAnalysis = activeSection?.editSuggestions && activeSection.editSuggestions.length > 0;
+  const isAnalyzing = loadingDeepAnalysis === activeSection?.id;
+  const isRefining = loadingRefineWithAnalysis === activeSection?.id || isProcessing === activeSection?.id;
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -305,19 +309,7 @@ const StepEditor: React.FC<StepEditorProps> = ({
             {selectedTitle && <span style={{ color: '#94a3b8' }}> · Đề tài: "{selectedTitle.substring(0, 50)}..."</span>}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn-secondary btn-sm">
-            {showSuggestions ? <EyeOff size={14} /> : <Eye size={14} />}
-            {showSuggestions ? 'Ẩn gợi ý' : 'Hiện gợi ý'}
-          </button>
-        </div>
       </div>
-
-      {/* User Requirements Panel */}
-      <UserRequirementsPanel
-        requirements={userRequirements}
-        onUpdate={onUpdateRequirements}
-      />
 
       {/* Progress bar */}
       <div className="progress-bar">
@@ -337,398 +329,439 @@ const StepEditor: React.FC<StepEditorProps> = ({
         )}
       </div>
 
-      {/* Editor Area */}
+      {/* ===== 3-STEP EDITOR AREA ===== */}
       {activeSection && (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: showSuggestions ? '1fr 1fr 340px' : '1fr 1fr',
-          gap: 16, minHeight: 400
+          gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 12, minHeight: 450
         }}>
-          {/* Original Panel */}
-          <div className="editor-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="panel-header" style={{ color: '#475569', justifyContent: 'space-between' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                📄 Nội dung Gốc
-                {getLevel(activeSection) === 2 && (
-                  <span className="badge badge-primary" style={{ fontSize: 9 }}>Mục con</span>
-                )}
-              </span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button
-                  className="btn-secondary btn-sm"
-                  onClick={() => setEditMode(editMode === 'paste' ? null : 'paste')}
-                  title="Dán nội dung mới"
-                  style={{ padding: '2px 6px' }}
-                >
-                  <ClipboardPaste size={11} />
-                </button>
-                <button
-                  className="btn-secondary btn-sm"
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Upload file nội dung (Word/PDF/TXT)"
-                  style={{ padding: '2px 6px' }}
-                >
-                  <Upload size={11} />
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".txt,.md,.doc,.docx,.pdf"
-                  style={{ display: 'none' }}
-                  onChange={e => handleUploadSectionFile(e, activeSection.id)}
-                />
-              </div>
+
+          {/* ========= BƯỚC 1: Upload & Yêu cầu ========= */}
+          <div className="editor-panel step-column" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="step-header" style={{ background: '#f0f9ff', borderBottom: '2px solid #38bdf8' }}>
+              <span className="step-badge" style={{ background: '#0284c7', color: 'white' }}>1</span>
+              <span style={{ fontWeight: 700, color: '#0369a1', fontSize: 13 }}>Nội dung & Tài liệu</span>
             </div>
 
-            {/* Paste mode */}
-            {editMode === 'paste' && (
-              <div style={{ padding: '8px 12px', background: '#fffbeb', borderBottom: '1px solid #fde68a' }}>
-                <textarea
-                  autoFocus
-                  value={pasteContent}
-                  onChange={e => setPasteContent(e.target.value)}
-                  placeholder="Dán nội dung mới cho phần này..."
-                  style={{
-                    width: '100%', minHeight: 80, border: '1px solid #fde68a', borderRadius: 6,
-                    padding: 8, fontSize: 12, resize: 'vertical', outline: 'none',
-                    fontFamily: 'inherit'
-                  }}
-                />
-                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                  <button className="btn-primary btn-sm" onClick={() => handlePasteContent(activeSection.id)}>
-                    <Check size={11} /> Cập nhật
+            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: 12 }}>
+              {/* Upload nội dung phần */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                  📄 Nội dung phần "{activeSection.title.substring(0, 30)}{activeSection.title.length > 30 ? '...' : ''}"
+                </label>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                  <button
+                    className="btn-secondary btn-sm"
+                    onClick={() => sectionFileInputRef.current?.click()}
+                    style={{ fontSize: 10, gap: 3 }}
+                  >
+                    <Upload size={11} /> Upload .docx/.pdf
                   </button>
-                  <button className="btn-secondary btn-sm" onClick={() => { setEditMode(null); setPasteContent(''); }}>
-                    Hủy
+                  <button
+                    className="btn-secondary btn-sm"
+                    onClick={() => setEditMode(editMode === 'paste' ? null : 'paste')}
+                    style={{ fontSize: 10, gap: 3 }}
+                  >
+                    <ClipboardPaste size={11} /> Dán nội dung
                   </button>
+                  <input
+                    ref={sectionFileInputRef}
+                    type="file"
+                    accept=".txt,.md,.doc,.docx,.pdf"
+                    style={{ display: 'none' }}
+                    onChange={e => handleUploadSectionFile(e, activeSection.id)}
+                  />
+                </div>
+
+                {/* Paste mode */}
+                {editMode === 'paste' && (
+                  <div style={{ marginBottom: 8 }}>
+                    <textarea
+                      autoFocus
+                      value={pasteContent}
+                      onChange={e => setPasteContent(e.target.value)}
+                      placeholder="Dán nội dung mới cho phần này..."
+                      style={{
+                        width: '100%', minHeight: 70, border: '1px solid #bae6fd', borderRadius: 6,
+                        padding: 8, fontSize: 11, resize: 'vertical', outline: 'none', fontFamily: 'inherit',
+                        background: '#f0f9ff'
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                      <button className="btn-primary btn-sm" onClick={() => handlePasteContent(activeSection.id)} style={{ fontSize: 10 }}>
+                        <Check size={10} /> Cập nhật
+                      </button>
+                      <button className="btn-secondary btn-sm" onClick={() => { setEditMode(null); setPasteContent(''); }} style={{ fontSize: 10 }}>
+                        Hủy
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview nội dung gốc */}
+                <div style={{
+                  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+                  padding: 10, maxHeight: 150, overflow: 'auto', fontSize: 11, lineHeight: 1.7,
+                  color: '#64748b', whiteSpace: 'pre-wrap'
+                }}>
+                  {activeSection.originalContent
+                    ? activeSection.originalContent.substring(0, 1000) + (activeSection.originalContent.length > 1000 ? '\n\n...(xem thêm)' : '')
+                    : '(Chưa có nội dung — upload hoặc dán nội dung phần này)'}
                 </div>
               </div>
-            )}
 
-            <div className="panel-body" style={{ backgroundColor: '#fafafa', flex: 1, overflow: 'auto' }}>
-              <p style={{
-                whiteSpace: 'pre-wrap', fontSize: 13, color: '#64748b', lineHeight: 1.8, margin: 0
-              }}>
-                {activeSection.originalContent || "(Không tìm thấy nội dung phần này)"}
-              </p>
+              {/* Đường kẻ phân cách */}
+              <hr style={{ border: 'none', borderTop: '1px dashed #e2e8f0', margin: '2px 0' }} />
+
+              {/* Tài liệu tham khảo */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                  📚 Tài liệu tham khảo
+                  <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 10 }}>(AI sẽ bám sát nội dung)</span>
+                </label>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                  <button
+                    className="btn-secondary btn-sm"
+                    onClick={() => refDocFileInputRef.current?.click()}
+                    style={{ fontSize: 10, gap: 3 }}
+                  >
+                    <Upload size={11} /> Upload
+                  </button>
+                  <input
+                    ref={refDocFileInputRef}
+                    type="file"
+                    accept=".txt,.md,.doc,.docx,.pdf"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={handleRefDocUpload}
+                  />
+                </div>
+
+                {/* Danh sách tài liệu */}
+                {userRequirements.referenceDocuments.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {userRequirements.referenceDocuments.map(doc => (
+                      <div key={doc.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '5px 8px', borderRadius: 6,
+                        background: doc.type === 'exercise' ? '#fef3c7' : '#f0f9ff',
+                        border: `1px solid ${doc.type === 'exercise' ? '#fde68a' : '#bae6fd'}`,
+                        fontSize: 10
+                      }}>
+                        <BookOpen size={12} color={doc.type === 'exercise' ? '#92400e' : '#0284c7'} />
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: '#334155' }}>
+                          {doc.name}
+                        </span>
+                        <span style={{ color: '#94a3b8', fontSize: 9 }}>{(doc.content.length / 1000).toFixed(1)}k</span>
+                        <button
+                          onClick={() => handleRemoveRefDoc(doc.id)}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 1, display: 'flex' }}
+                        >
+                          <Trash2 size={11} color="#e11d48" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic', margin: 0 }}>
+                    Chưa có tài liệu. Upload để AI lấy nội dung tham khảo.
+                  </p>
+                )}
+              </div>
+
+              {/* Đường kẻ phân cách */}
+              <hr style={{ border: 'none', borderTop: '1px dashed #e2e8f0', margin: '2px 0' }} />
+
+              {/* Yêu cầu người dùng */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                  ⚙️ Yêu cầu
+                </label>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                  <div style={{ flex: '0 0 100px' }}>
+                    <label style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 2 }}>Giới hạn trang</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      placeholder="∞"
+                      value={userRequirements.pageLimit || ''}
+                      onChange={e => {
+                        const num = parseInt(e.target.value);
+                        onUpdateRequirements({ ...userRequirements, pageLimit: isNaN(num) ? null : num });
+                      }}
+                      style={{
+                        width: '100%', padding: '6px 8px', borderRadius: 6,
+                        border: '1px solid #e2e8f0', fontSize: 11, outline: 'none'
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 2 }}>Yêu cầu đặc biệt</label>
+                    <input
+                      type="text"
+                      placeholder="VD: Bám sát nội dung tài liệu TK, viết ngắn gọn..."
+                      value={userRequirements.customInstructions}
+                      onChange={e => onUpdateRequirements({ ...userRequirements, customInstructions: e.target.value })}
+                      style={{
+                        width: '100%', padding: '6px 8px', borderRadius: 6,
+                        border: '1px solid #e2e8f0', fontSize: 11, outline: 'none'
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Refined Panel */}
-          <div className="editor-panel" style={{ borderColor: '#99f6e4', display: 'flex', flexDirection: 'column' }}>
-            <div className="panel-header" style={{ color: '#0d9488', background: '#f0fdfa', justifyContent: 'space-between' }}>
-              <span>✨ Nội dung Đề xuất (AI)</span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {activeSection.refinedContent && (
-                  <>
-                    <button
-                      onClick={() => handleDownloadSection(activeSection)}
-                      className="btn-secondary btn-sm"
-                      title="Tải phần này"
-                    >
-                      <Download size={12} /> Tải
-                    </button>
-                    <button
-                      onClick={() => hasRefDocs ? onRefineSectionWithRefs(activeSection.id) : onRefineSection(activeSection.id)}
-                      className="btn-secondary btn-sm"
-                      disabled={!!isProcessing}
-                    >
-                      <RefreshCw size={12} /> Viết lại
-                    </button>
-                  </>
-                )}
-                {!activeSection.refinedContent && !isProcessing && (
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <button
-                      onClick={() => onRefineSection(activeSection.id)}
-                      className="btn-primary btn-sm"
-                    >
-                      <Sparkles size={12} /> Viết lại
-                    </button>
-                    {hasRefDocs && (
-                      <button
-                        onClick={() => onRefineSectionWithRefs(activeSection.id)}
-                        className="btn-secondary btn-sm"
-                        title="Viết lại sử dụng ví dụ từ tài liệu tham khảo"
-                      >
-                        <BookOpen size={12} /> + Tài liệu TK
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+          {/* ========= BƯỚC 2: Phân tích chuyên sâu ========= */}
+          <div className="editor-panel step-column" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="step-header" style={{ background: '#fffbeb', borderBottom: '2px solid #f59e0b' }}>
+              <span className="step-badge" style={{ background: '#d97706', color: 'white' }}>2</span>
+              <span style={{ fontWeight: 700, color: '#92400e', fontSize: 13 }}>Phân tích & Đề xuất sửa</span>
             </div>
-            <div className="panel-body" style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
-              {isProcessing === activeSection.id ? (
-                <div style={{
-                  position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center',
-                  background: 'rgba(240, 253, 250, 0.9)', zIndex: 10
-                }}>
-                  <Loader2 size={32} color="#0d9488" className="animate-spin-slow" />
-                  <span style={{ fontSize: 13, color: '#0d9488', fontWeight: 600, marginTop: 12 }}>
-                    Đang viết lại theo đề tài mới...
-                  </span>
-                  <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                    Giọng văn tự nhiên · Giữ số liệu · Tránh đạo văn
-                  </span>
+
+            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: 12 }}>
+              {/* Nút phân tích */}
+              <button
+                onClick={() => handleDeepAnalysis(activeSection.id)}
+                className="btn-primary"
+                disabled={!!loadingDeepAnalysis || !activeSection.originalContent}
+                style={{
+                  width: '100%', padding: '10px 16px', fontSize: 13, fontWeight: 700,
+                  background: !activeSection.originalContent ? '#e2e8f0' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  border: 'none', gap: 6
+                }}
+              >
+                {isAnalyzing ? (
+                  <><Loader2 size={14} className="animate-spin-slow" /> Đang phân tích...</>
+                ) : (
+                  <><Search size={14} /> Phân tích chuyên sâu</>
+                )}
+              </button>
+
+              {!activeSection.originalContent && (
+                <p style={{ fontSize: 10, color: '#f59e0b', textAlign: 'center', margin: 0 }}>
+                  ⚠️ Vui lòng upload nội dung ở Bước 1 trước
+                </p>
+              )}
+
+              {/* Loading */}
+              {isAnalyzing && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px 0', gap: 8 }}>
+                  <Loader2 size={28} color="#f59e0b" className="animate-spin-slow" />
+                  <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Đang phân tích sâu...</span>
+                  <span style={{ fontSize: 10, color: '#64748b' }}>Dựa trên bối cảnh SKKN tổng thể + tài liệu TK</span>
                 </div>
-              ) : activeSection.refinedContent ? (
-                <textarea
-                  value={activeSection.refinedContent}
-                  onChange={e => handleContentEdit(activeSection.id, e.target.value)}
-                  style={{
-                    width: '100%', flex: 1, minHeight: 300,
-                    border: 'none', outline: 'none', resize: 'vertical',
-                    fontSize: 13, lineHeight: 1.8, color: '#334155',
-                    padding: 0, fontFamily: 'inherit', background: 'transparent'
-                  }}
-                />
-              ) : (
+              )}
+
+              {/* Kết quả phân tích */}
+              {hasAnalysis && !isAnalyzing && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
+                      📋 {activeSection.editSuggestions.length} đề xuất sửa
+                    </span>
+                    <button
+                      onClick={() => handleDeepAnalysis(activeSection.id)}
+                      className="btn-secondary btn-sm"
+                      style={{ fontSize: 9, padding: '2px 6px' }}
+                      disabled={!!loadingDeepAnalysis}
+                    >
+                      <RefreshCw size={9} /> Phân tích lại
+                    </button>
+                  </div>
+
+                  {activeSection.editSuggestions.map((sug, idx) => {
+                    const actionStyle = ACTION_STYLES[sug.action] || ACTION_STYLES.modify;
+                    const catInfo = CATEGORY_LABELS[sug.category] || CATEGORY_LABELS.content;
+                    const isExpanded = expandedSuggestion === sug.id;
+
+                    return (
+                      <div key={sug.id || idx} style={{
+                        border: `1px solid ${sug.applied ? '#d1d5db' : actionStyle.border}`,
+                        borderRadius: 8, overflow: 'hidden',
+                        opacity: sug.applied ? 0.5 : 1,
+                        transition: 'opacity 0.3s'
+                      }}>
+                        <div
+                          onClick={() => setExpandedSuggestion(isExpanded ? null : sug.id)}
+                          style={{
+                            padding: '7px 10px', cursor: 'pointer',
+                            background: sug.applied ? '#f9fafb' : actionStyle.bg
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
+                              background: actionStyle.bg, color: actionStyle.color,
+                              border: `1px solid ${actionStyle.border}`,
+                              display: 'flex', alignItems: 'center', gap: 2
+                            }}>
+                              {actionStyle.icon} {actionStyle.label}
+                            </span>
+                            <span style={{
+                              fontSize: 9, padding: '1px 5px', borderRadius: 4,
+                              background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0'
+                            }}>
+                              {catInfo.icon} {catInfo.label}
+                            </span>
+                            {sug.applied && (
+                              <span style={{ fontSize: 9, color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <Check size={9} /> Đã áp dụng
+                              </span>
+                            )}
+                            <div style={{ flex: 1 }} />
+                            {isExpanded ? <ChevronUp size={11} color="#94a3b8" /> : <ChevronDown size={11} color="#94a3b8" />}
+                          </div>
+                          <p style={{ fontSize: 11, fontWeight: 600, color: '#334155', margin: 0 }}>
+                            {sug.label}
+                          </p>
+                        </div>
+
+                        {isExpanded && (
+                          <div style={{ padding: '7px 10px', borderTop: `1px solid ${actionStyle.border}`, fontSize: 11, lineHeight: 1.6 }}>
+                            <p style={{ color: '#64748b', marginBottom: 6, margin: 0 }}>{sug.description}</p>
+
+                            {sug.originalText && (
+                              <div style={{
+                                padding: '5px 8px', borderRadius: 6, marginTop: 5, marginBottom: 4,
+                                background: '#fff1f2', borderLeft: '2px solid #f43f5e'
+                              }}>
+                                <p style={{ fontSize: 9, fontWeight: 600, color: '#e11d48', marginBottom: 2, margin: 0 }}>Gốc:</p>
+                                <p style={{ color: '#64748b', margin: 0, fontSize: 10 }}>"{sug.originalText.substring(0, 200)}{sug.originalText.length > 200 ? '...' : ''}"</p>
+                              </div>
+                            )}
+                            {sug.suggestedText && (
+                              <div style={{
+                                padding: '5px 8px', borderRadius: 6, marginTop: 4,
+                                background: '#ecfdf5', borderLeft: '2px solid #10b981'
+                              }}>
+                                <p style={{ fontSize: 9, fontWeight: 600, color: '#047857', marginBottom: 2, margin: 0 }}>Đề xuất:</p>
+                                <p style={{ color: '#334155', margin: 0, fontSize: 10 }}>"{sug.suggestedText.substring(0, 300)}{sug.suggestedText.length > 300 ? '...' : ''}"</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Empty state */}
+              {(!hasAnalysis) && !isAnalyzing && (
                 <div style={{
                   flex: 1, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', color: '#94a3b8'
+                  alignItems: 'center', justifyContent: 'center', color: '#94a3b8', textAlign: 'center'
                 }}>
-                  <Sparkles size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
-                  <p style={{ fontSize: 13, textAlign: 'center', maxWidth: 240 }}>
-                    Nhấn "Viết lại" để AI viết lại phần này với giọng văn tự nhiên.
+                  <Search size={28} style={{ marginBottom: 10, opacity: 0.3 }} />
+                  <p style={{ fontSize: 12, maxWidth: 200, margin: 0, lineHeight: 1.6 }}>
+                    Nhấn <strong>"Phân tích chuyên sâu"</strong> để AI đánh giá và đề xuất cách sửa cụ thể cho phần này.
                   </p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Right Panel: Analysis & Suggestions */}
-          {showSuggestions && (
-            <div className="editor-panel" style={{ borderColor: '#fde68a', display: 'flex', flexDirection: 'column' }}>
-              <div className="panel-header" style={{ color: '#92400e', background: '#fffbeb', justifyContent: 'space-between' }}>
-                <span>🔍 Phân tích & Đề xuất sửa</span>
-              </div>
-              <div className="panel-body" style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-
-                {/* Action buttons */}
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => handleDeepAnalysis(activeSection.id)}
-                    className="btn-primary btn-sm"
-                    disabled={!!loadingDeepAnalysis}
-                    style={{ fontSize: 11 }}
-                  >
-                    <Search size={11} /> Phân tích sâu
-                  </button>
-                  {(!activeSection.suggestions || activeSection.suggestions.length === 0) && !loadingSuggestions && (
-                    <button
-                      onClick={() => handleGetSuggestions(activeSection.id)}
-                      className="btn-secondary btn-sm"
-                      style={{ fontSize: 11 }}
-                    >
-                      <Lightbulb size={11} /> Phân tích nhanh
-                    </button>
-                  )}
-                </div>
-
-                {/* Deep analysis loading */}
-                {loadingDeepAnalysis === activeSection.id && (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 0', gap: 8 }}>
-                    <Loader2 size={24} color="#f59e0b" className="animate-spin-slow" />
-                    <span style={{ fontSize: 11, color: '#64748b' }}>Đang phân tích sâu dựa trên bối cảnh SKKN...</span>
-                  </div>
-                )}
-
-                {/* Deep analysis results (edit suggestions) */}
-                {activeSection.editSuggestions && activeSection.editSuggestions.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
-                        Đề xuất sửa ({activeSection.editSuggestions.filter(s => !s.applied).length} chưa áp dụng)
-                      </span>
-                      {activeSection.editSuggestions.some(s => !s.applied) && (
-                        <button
-                          onClick={() => handleApplyAll(activeSection.id)}
-                          className="btn-primary btn-sm"
-                          style={{ fontSize: 10, padding: '2px 8px' }}
-                        >
-                          <CheckCircle2 size={10} /> Áp dụng tất cả
-                        </button>
-                      )}
-                    </div>
-
-                    {activeSection.editSuggestions.map((sug, idx) => {
-                      const actionStyle = ACTION_STYLES[sug.action] || ACTION_STYLES.modify;
-                      const catInfo = CATEGORY_LABELS[sug.category] || CATEGORY_LABELS.content;
-                      const isExpanded = expandedSuggestion === sug.id;
-
-                      return (
-                        <div key={sug.id || idx} style={{
-                          border: `1px solid ${sug.applied ? '#d1d5db' : actionStyle.border}`,
-                          borderRadius: 8, overflow: 'hidden',
-                          opacity: sug.applied ? 0.5 : 1,
-                          transition: 'opacity 0.3s'
-                        }}>
-                          <div
-                            onClick={() => setExpandedSuggestion(isExpanded ? null : sug.id)}
-                            style={{
-                              padding: '8px 10px', cursor: 'pointer',
-                              background: sug.applied ? '#f9fafb' : actionStyle.bg
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                              <span style={{
-                                fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
-                                background: actionStyle.bg, color: actionStyle.color,
-                                border: `1px solid ${actionStyle.border}`,
-                                display: 'flex', alignItems: 'center', gap: 2
-                              }}>
-                                {actionStyle.icon} {actionStyle.label}
-                              </span>
-                              <span style={{
-                                fontSize: 9, padding: '1px 6px', borderRadius: 4,
-                                background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0'
-                              }}>
-                                {catInfo.icon} {catInfo.label}
-                              </span>
-                              {sug.applied && (
-                                <span style={{ fontSize: 9, color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2 }}>
-                                  <Check size={9} /> Đã áp dụng
-                                </span>
-                              )}
-                              <div style={{ flex: 1 }} />
-                              {isExpanded ? <ChevronUp size={12} color="#94a3b8" /> : <ChevronDown size={12} color="#94a3b8" />}
-                            </div>
-                            <p style={{ fontSize: 11, fontWeight: 600, color: '#334155', margin: 0 }}>
-                              {sug.label}
-                            </p>
-                          </div>
-
-                          {isExpanded && (
-                            <div style={{ padding: '8px 10px', borderTop: `1px solid ${actionStyle.border}`, fontSize: 11, lineHeight: 1.6 }}>
-                              <p style={{ color: '#64748b', marginBottom: 8, margin: 0 }}>{sug.description}</p>
-
-                              {sug.originalText && (
-                                <div style={{
-                                  padding: '6px 8px', borderRadius: 6, marginTop: 6, marginBottom: 4,
-                                  background: '#fff1f2', borderLeft: '2px solid #f43f5e'
-                                }}>
-                                  <p style={{ fontSize: 9, fontWeight: 600, color: '#e11d48', marginBottom: 2, margin: 0 }}>Gốc:</p>
-                                  <p style={{ color: '#64748b', margin: 0, fontSize: 11 }}>"{sug.originalText.substring(0, 200)}{sug.originalText.length > 200 ? '...' : ''}"</p>
-                                </div>
-                              )}
-                              {sug.suggestedText && (
-                                <div style={{
-                                  padding: '6px 8px', borderRadius: 6, marginTop: 4,
-                                  background: '#ecfdf5', borderLeft: '2px solid #10b981'
-                                }}>
-                                  <p style={{ fontSize: 9, fontWeight: 600, color: '#047857', marginBottom: 2, margin: 0 }}>Đề xuất:</p>
-                                  <p style={{ color: '#334155', margin: 0, fontSize: 11 }}>"{sug.suggestedText.substring(0, 300)}{sug.suggestedText.length > 300 ? '...' : ''}"</p>
-                                </div>
-                              )}
-
-                              {!sug.applied && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleApplySuggestion(activeSection.id, sug.id); }}
-                                  className="btn-primary btn-sm"
-                                  style={{ marginTop: 8, fontSize: 10 }}
-                                >
-                                  <Check size={10} /> Áp dụng sửa
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    <button
-                      onClick={() => handleDeepAnalysis(activeSection.id)}
-                      className="btn-secondary btn-sm"
-                      style={{ alignSelf: 'center', marginTop: 4, fontSize: 10 }}
-                      disabled={!!loadingDeepAnalysis}
-                    >
-                      <RefreshCw size={10} /> Phân tích lại
-                    </button>
-                  </div>
-                )}
-
-                {/* Old quick suggestions */}
-                {loadingSuggestions === activeSection.id && (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px 0', gap: 8 }}>
-                    <Loader2 size={24} color="#f59e0b" className="animate-spin-slow" />
-                    <span style={{ fontSize: 12, color: '#64748b' }}>Đang phân tích nhanh...</span>
-                  </div>
-                )}
-
-                {activeSection.suggestions && activeSection.suggestions.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>Gợi ý nhanh</span>
-                    {activeSection.suggestions.map((sug, idx) => {
-                      const typeInfo = SUGGESTION_TYPES[sug.type as keyof typeof SUGGESTION_TYPES] || SUGGESTION_TYPES.scientific;
-                      const isExpanded = expandedSuggestion === sug.id;
-                      return (
-                        <div key={sug.id || idx} className="suggestion-card" style={{
-                          borderColor: `${typeInfo.color}30`, padding: '8px 10px', borderRadius: 8,
-                          border: `1px solid ${typeInfo.color}30`, background: 'white'
-                        }}>
-                          <div onClick={() => setExpandedSuggestion(isExpanded ? null : sug.id)} style={{ cursor: 'pointer' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                              <span style={{
-                                fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 999,
-                                background: `${typeInfo.color}10`, color: typeInfo.color,
-                                border: `1px solid ${typeInfo.color}30`
-                              }}>
-                                {typeInfo.icon} {typeInfo.label}
-                              </span>
-                              {isExpanded ? <ChevronUp size={12} color="#94a3b8" /> : <ChevronDown size={12} color="#94a3b8" />}
-                            </div>
-                            <p style={{ fontSize: 11, fontWeight: 600, color: '#334155', margin: 0 }}>{sug.label}</p>
-                          </div>
-                          {isExpanded && (
-                            <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.6 }}>
-                              <p style={{ color: '#64748b', marginBottom: 6, margin: 0 }}>{sug.description}</p>
-                              {sug.originalText && (
-                                <div style={{ padding: '6px 8px', borderRadius: 6, marginBottom: 4, background: '#fff1f2', borderLeft: '2px solid #f43f5e' }}>
-                                  <p style={{ fontSize: 9, fontWeight: 600, color: '#e11d48', marginBottom: 2, margin: 0 }}>Gốc:</p>
-                                  <p style={{ color: '#64748b', margin: 0 }}>"{sug.originalText}"</p>
-                                </div>
-                              )}
-                              {sug.suggestedText && (
-                                <div style={{ padding: '6px 8px', borderRadius: 6, background: '#ecfdf5', borderLeft: '2px solid #10b981' }}>
-                                  <p style={{ fontSize: 9, fontWeight: 600, color: '#047857', marginBottom: 2, margin: 0 }}>Đề xuất:</p>
-                                  <p style={{ color: '#334155', margin: 0 }}>"{sug.suggestedText}"</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <button
-                      onClick={() => handleGetSuggestions(activeSection.id)}
-                      className="btn-secondary btn-sm"
-                      style={{ alignSelf: 'center', marginTop: 2, fontSize: 10 }}
-                    >
-                      <RefreshCw size={10} /> Phân tích lại
-                    </button>
-                  </div>
-                )}
-
-                {/* Empty state */}
-                {(!activeSection.editSuggestions || activeSection.editSuggestions.length === 0) &&
-                  (!activeSection.suggestions || activeSection.suggestions.length === 0) &&
-                  !loadingDeepAnalysis && !loadingSuggestions && (
-                    <div style={{
-                      flex: 1, display: 'flex', flexDirection: 'column',
-                      alignItems: 'center', justifyContent: 'center', color: '#94a3b8', textAlign: 'center'
-                    }}>
-                      <Search size={24} style={{ marginBottom: 8, opacity: 0.4 }} />
-                      <p style={{ fontSize: 12, maxWidth: 220, margin: 0 }}>
-                        Nhấn <strong>"Phân tích sâu"</strong> để AI đánh giá dựa trên bối cảnh SKKN tổng thể và đề xuất sửa cụ thể.
-                      </p>
-                    </div>
-                  )}
-
-              </div>
+          {/* ========= BƯỚC 3: Đồng ý sửa & Kết quả ========= */}
+          <div className="editor-panel step-column" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="step-header" style={{ background: '#f0fdfa', borderBottom: '2px solid #14b8a6' }}>
+              <span className="step-badge" style={{ background: '#0d9488', color: 'white' }}>3</span>
+              <span style={{ fontWeight: 700, color: '#134e4a', fontSize: 13 }}>Kết quả sửa</span>
             </div>
-          )}
+
+            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', padding: 12, gap: 8 }}>
+              {/* Nút đồng ý sửa */}
+              {!activeSection.refinedContent && !isRefining && (
+                <button
+                  onClick={() => handleRefineWithAnalysis(activeSection.id)}
+                  disabled={!hasAnalysis || !!loadingRefineWithAnalysis}
+                  className="btn-primary"
+                  style={{
+                    width: '100%', padding: '10px 16px', fontSize: 13, fontWeight: 700,
+                    background: !hasAnalysis ? '#e2e8f0' : 'linear-gradient(135deg, #14b8a6, #0d9488)',
+                    border: 'none', gap: 6,
+                    color: !hasAnalysis ? '#94a3b8' : 'white'
+                  }}
+                >
+                  <CheckCircle2 size={14} /> Đồng ý sửa theo đề xuất
+                </button>
+              )}
+
+              {!hasAnalysis && !activeSection.refinedContent && !isRefining && (
+                <p style={{ fontSize: 10, color: '#94a3b8', textAlign: 'center', margin: 0 }}>
+                  ⏳ Cần phân tích ở Bước 2 trước khi sửa
+                </p>
+              )}
+
+              {/* Loading */}
+              {isRefining && (
+                <div style={{
+                  flex: 1, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', gap: 10,
+                  background: 'rgba(240, 253, 250, 0.9)'
+                }}>
+                  <Loader2 size={32} color="#0d9488" className="animate-spin-slow" />
+                  <span style={{ fontSize: 13, color: '#0d9488', fontWeight: 600 }}>
+                    Đang sửa nội dung theo đề xuất...
+                  </span>
+                  <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                    Giọng văn tự nhiên · Bám sát phân tích · Tham khảo tài liệu
+                  </span>
+                </div>
+              )}
+
+              {/* Kết quả đã sửa */}
+              {activeSection.refinedContent && !isRefining && (
+                <>
+                  <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => handleDownloadSection(activeSection)}
+                      className="btn-secondary btn-sm"
+                      style={{ fontSize: 10 }}
+                    >
+                      <Download size={11} /> Tải
+                    </button>
+                    <button
+                      onClick={() => handleRefineWithAnalysis(activeSection.id)}
+                      className="btn-secondary btn-sm"
+                      disabled={!!loadingRefineWithAnalysis || !hasAnalysis}
+                      style={{ fontSize: 10 }}
+                    >
+                      <RefreshCw size={11} /> Sửa lại
+                    </button>
+                  </div>
+                  <textarea
+                    value={activeSection.refinedContent}
+                    onChange={e => handleContentEdit(activeSection.id, e.target.value)}
+                    style={{
+                      width: '100%', flex: 1, minHeight: 350,
+                      border: '1px solid #ccfbf1', outline: 'none', resize: 'vertical',
+                      fontSize: 12, lineHeight: 1.8, color: '#334155',
+                      padding: 10, fontFamily: 'inherit', background: '#fafffe',
+                      borderRadius: 6
+                    }}
+                  />
+                </>
+              )}
+
+              {/* Empty state khi chưa sửa */}
+              {!activeSection.refinedContent && !isRefining && !hasAnalysis && (
+                <div style={{
+                  flex: 1, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', color: '#94a3b8'
+                }}>
+                  <Sparkles size={28} style={{ marginBottom: 10, opacity: 0.3 }} />
+                  <p style={{ fontSize: 12, textAlign: 'center', maxWidth: 200, margin: 0, lineHeight: 1.6 }}>
+                    Nội dung đã sửa sẽ hiện ở đây sau khi bạn đồng ý sửa theo đề xuất.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
       )}
 

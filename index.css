@@ -926,3 +926,41 @@ body::before {
 .progress-bar-fill.primary {
   background: linear-gradient(90deg, var(--primary-600), var(--primary-400));
 }
+
+/* ===== Step Column Layout (3-Step Editor) ===== */
+.step-column {
+  transition: all var(--transition-base);
+}
+
+.step-column:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+.step-header {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.step-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* ===== Responsive: stack columns on small screens ===== */
+@media (max-width: 1024px) {
+  .step-column {
+    min-height: 300px;
+  }
+}

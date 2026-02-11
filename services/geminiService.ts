@@ -599,3 +599,97 @@ Trả về nội dung đã sửa. Định dạng đẹp, chuẩn. Bảng biểu 
     return response.text || "";
   });
 };
+
+// --- Viết lại section DỰA TRÊN KẾT QUẢ PHÂN TÍCH CHUYÊN SÂU (Bước 3) ---
+export const refineSectionWithAnalysis = async (
+  sectionName: string,
+  originalContent: string,
+  newTitle: string,
+  editSuggestions: SectionEditSuggestion[],
+  userRequirements: UserRequirements,
+  skknContext: {
+    currentTitle: string;
+    selectedTitle: string;
+    allSectionTitles: string[];
+    overallAnalysisSummary: string;
+  }
+): Promise<string> => {
+  const ai = getAI();
+  const knowledgeContext = buildKnowledgeContext(sectionName);
+
+  const needsTable = /kết quả|hiệu quả|thực nghiệm|so sánh|khảo sát/i.test(sectionName);
+  const tableInstruction = needsTable ? `\n- Nếu có số liệu trước/sau, trình bày BẢNG SO SÁNH:\n${COMPARISON_TABLE_TEMPLATE}` : '';
+
+  // Build analysis-based instructions from editSuggestions
+  const analysisInstructions = editSuggestions.length > 0
+    ? `\n\n===== KẾT QUẢ PHÂN TÍCH CHUYÊN SÂU (BẮT BUỘC THỰC HIỆN) =====
+Dưới đây là các đề xuất sửa đã được phân tích kỹ. BẠN PHẢI thực hiện TẤT CẢ các đề xuất này khi viết lại:
+
+${editSuggestions.map((s, i) => {
+      const actionLabels: Record<string, string> = { replace: 'THAY THẾ', add: 'THÊM', remove: 'XÓA', modify: 'CHỈNH SỬA' };
+      return `${i + 1}. [${actionLabels[s.action] || s.action}] ${s.label}
+   Lý do: ${s.description}
+   ${s.originalText ? `Đoạn gốc cần sửa: "${s.originalText.substring(0, 500)}"` : ''}
+   ${s.suggestedText ? `Nội dung đề xuất: "${s.suggestedText.substring(0, 500)}"` : ''}`;
+    }).join('\n\n')}
+================================================================`
+    : '';
+
+  const refDocsContext = userRequirements.referenceDocuments.length > 0
+    ? `\n\n===== TÀI LIỆU THAM KHẢO =====\n${userRequirements.referenceDocuments.map((d, i) =>
+      `--- ${d.type === 'exercise' ? 'BÀI TẬP' : 'TÀI LIỆU'} ${i + 1}: "${d.name}" ---\n${d.content.substring(0, 4000)}\n`
+    ).join('\n')}\n\nYÊU CẦU VỀ TÀI LIỆU THAM KHẢO:\n- PHẢI lấy ví dụ minh họa CHÍNH XÁC từ tài liệu tham khảo\n- Thay thế các ví dụ chung chung bằng ví dụ cụ thể từ tài liệu\n- Trích nguyên văn đề bài, bài tập từ tài liệu (không tự sáng tạo)\n=============================`
+    : '';
+
+  const pageLimitContext = userRequirements.pageLimit
+    ? `\nGIỚI HẠN: Phần này nên khoảng ${Math.round(userRequirements.pageLimit * 350 / 6)} từ (trong tổng ${userRequirements.pageLimit} trang SKKN).`
+    : '';
+
+  const customContext = userRequirements.customInstructions
+    ? `\nYÊU CẦU BỔ SUNG TỪ NGƯỜI DÙNG: ${userRequirements.customInstructions}`
+    : '';
+
+  const prompt = `
+Bạn là chuyên gia viết SKKN cấp Bộ với 20 năm kinh nghiệm. Viết lại phần "${sectionName}" cho đề tài: "${newTitle}".
+
+BỐI CẢNH SKKN:
+- Đề tài hiện tại: "${skknContext.currentTitle}"
+- Đề tài mới: "${skknContext.selectedTitle}"
+- Các phần: ${skknContext.allSectionTitles.join(', ')}
+- Đánh giá tổng quan: ${skknContext.overallAnalysisSummary}
+
+===== KIẾN THỨC CHUYÊN MÔN =====
+${knowledgeContext}
+================================
+
+${NATURAL_WRITING_GUIDE}
+${analysisInstructions}
+${refDocsContext}
+${pageLimitContext}
+${customContext}
+
+NGUYÊN TẮC VIẾT LẠI:
+1. THỰC HIỆN TẤT CẢ đề xuất sửa từ phân tích chuyên sâu ở trên — đây là YÊU CẦU BẮT BUỘC.
+2. GIỮ NGUYÊN tất cả số liệu thực tế, tên riêng.
+3. Ngôn ngữ học thuật nhưng TỰ NHIÊN, có trải nghiệm cá nhân.
+4. LOẠI BỎ câu sáo rỗng. Dẫn dắt trực tiếp, cụ thể.
+5. XEN KẼ quan sát cá nhân vào giữa số liệu khoa học.
+6. TRÁNH giọng văn máy móc. Viết như giáo viên ĐAM MÊ kể lại quá trình thực tế.
+7. GIỮ NGUYÊN công thức toán học (LaTeX).
+8. Nếu có tài liệu tham khảo → LẤY VÍ DỤ CHÍNH XÁC từ đó.
+${tableInstruction}
+
+Nội dung gốc:
+"${originalContent}"
+
+Trả về nội dung đã sửa hoàn chỉnh. Định dạng đẹp, chuẩn. Bảng biểu dùng markdown table.
+  `;
+
+  return callWithFallback(async (model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+    });
+    return response.text || "";
+  });
+};
