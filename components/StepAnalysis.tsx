@@ -23,20 +23,19 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
   }));
 
   const getColor = (score: number) => {
-    if (score >= 8) return '#34d399';
-    if (score >= 5) return '#fbbf24';
-    return '#fb7185';
+    if (score >= 8) return '#10b981';
+    if (score >= 5) return '#f59e0b';
+    return '#f43f5e';
   };
 
   const getScoreLabel = (score: number) => {
-    if (score >= 80) return { text: 'Tốt', color: '#34d399' };
-    if (score >= 60) return { text: 'Trung bình', color: '#fbbf24' };
-    return { text: 'Cần cải thiện', color: '#fb7185' };
+    if (score >= 80) return { text: 'Tốt', color: '#10b981' };
+    if (score >= 60) return { text: 'Trung bình', color: '#f59e0b' };
+    return { text: 'Cần cải thiện', color: '#f43f5e' };
   };
 
   const qualityLabel = getScoreLabel(metrics.qualityScore);
 
-  // Progress ring SVG
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
   const qualityOffset = circumference - (metrics.qualityScore / 100) * circumference;
@@ -46,7 +45,7 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
-        <h2 style={{ fontSize: 24, fontWeight: 800, color: '#f1f5f9', marginBottom: 4 }}>Kết quả Phân tích</h2>
+        <h2 style={{ fontSize: 24, fontWeight: 800, color: '#134e4a', marginBottom: 4 }}>Kết quả Phân tích</h2>
         <p style={{ color: '#64748b', fontSize: 14 }}>AI đã đánh giá chi tiết SKKN của bạn</p>
       </div>
 
@@ -57,12 +56,11 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
           <p className="stat-label">Chất lượng tổng thể</p>
           <div style={{ display: 'flex', justifyContent: 'center', margin: '12px 0' }}>
             <svg width={120} height={120} viewBox="0 0 120 120">
-              <circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+              <circle cx="60" cy="60" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="8" />
               <circle
                 cx="60" cy="60" r={radius} fill="none"
                 stroke={qualityLabel.color}
-                strokeWidth="8"
-                strokeLinecap="round"
+                strokeWidth="8" strokeLinecap="round"
                 strokeDasharray={circumference}
                 strokeDashoffset={qualityOffset}
                 style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%', transition: 'stroke-dashoffset 1s ease' }}
@@ -70,7 +68,7 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
               <text x="60" y="55" textAnchor="middle" fill={qualityLabel.color} fontSize="28" fontWeight="800">
                 {metrics.qualityScore}
               </text>
-              <text x="60" y="72" textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="500">
+              <text x="60" y="72" textAnchor="middle" fill="#94a3b8" fontSize="10" fontWeight="500">
                 / 100 điểm
               </text>
             </svg>
@@ -83,20 +81,19 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
           <p className="stat-label">Nguy cơ Đạo văn</p>
           <div style={{ display: 'flex', justifyContent: 'center', margin: '12px 0' }}>
             <svg width={120} height={120} viewBox="0 0 120 120">
-              <circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+              <circle cx="60" cy="60" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="8" />
               <circle
                 cx="60" cy="60" r={radius} fill="none"
-                stroke={metrics.plagiarismScore > 30 ? '#fb7185' : metrics.plagiarismScore > 15 ? '#fbbf24' : '#34d399'}
-                strokeWidth="8"
-                strokeLinecap="round"
+                stroke={metrics.plagiarismScore > 30 ? '#f43f5e' : metrics.plagiarismScore > 15 ? '#f59e0b' : '#10b981'}
+                strokeWidth="8" strokeLinecap="round"
                 strokeDasharray={circumference}
                 strokeDashoffset={plagiarismOffset}
                 style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%', transition: 'stroke-dashoffset 1s ease' }}
               />
-              <text x="60" y="55" textAnchor="middle" fill={metrics.plagiarismScore > 30 ? '#fb7185' : '#34d399'} fontSize="28" fontWeight="800">
+              <text x="60" y="55" textAnchor="middle" fill={metrics.plagiarismScore > 30 ? '#f43f5e' : '#10b981'} fontSize="28" fontWeight="800">
                 {metrics.plagiarismScore}%
               </text>
-              <text x="60" y="72" textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="500">
+              <text x="60" y="72" textAnchor="middle" fill="#94a3b8" fontSize="10" fontWeight="500">
                 trùng lặp
               </text>
             </svg>
@@ -119,17 +116,17 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
               { key: 'hasConclusion', label: 'Kết luận' },
             ].map(item => (
               <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: '#94a3b8' }}>{item.label}</span>
+                <span style={{ color: '#475569' }}>{item.label}</span>
                 {(metrics.structure as any)[item.key]
-                  ? <CheckCircle2 size={16} color="#34d399" />
-                  : <XCircle size={16} color="#fb7185" />
+                  ? <CheckCircle2 size={16} color="#10b981" />
+                  : <XCircle size={16} color="#f43f5e" />
                 }
               </div>
             ))}
           </div>
           {metrics.structure.missing.length > 0 && (
-            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(244, 63, 94, 0.08)', border: '1px solid rgba(244, 63, 94, 0.15)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#fb7185', fontSize: 12, fontWeight: 600 }}>
+            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#fff1f2', border: '1px solid #fecdd3' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#e11d48', fontSize: 12, fontWeight: 600 }}>
                 <AlertTriangle size={14} /> Thiếu: {metrics.structure.missing.join(', ')}
               </div>
             </div>
@@ -141,14 +138,14 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Radar Chart */}
         <div className="glass-card" style={{ padding: 20 }}>
-          <h4 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 16 }}>Tổng quan tiêu chí</h4>
+          <h4 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Tổng quan tiêu chí</h4>
           <div style={{ height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={radarData}>
-                <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                <PolarGrid stroke="#e2e8f0" />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#64748b' }} />
                 <PolarRadiusAxis domain={[0, 10]} tick={false} axisLine={false} />
-                <Radar dataKey="value" stroke="#818cf8" fill="#6366f1" fillOpacity={0.2} strokeWidth={2} />
+                <Radar dataKey="value" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.15} strokeWidth={2} />
               </RadarChart>
             </ResponsiveContainer>
           </div>
@@ -156,7 +153,7 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
 
         {/* Bar Chart */}
         <div className="glass-card" style={{ padding: 20 }}>
-          <h4 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 16 }}>Chi tiết điểm số</h4>
+          <h4 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Chi tiết điểm số</h4>
           <div style={{ height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
@@ -164,11 +161,11 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
                 <YAxis domain={[0, 10]} hide />
                 <Tooltip
                   contentStyle={{
-                    borderRadius: 10, border: 'none',
-                    background: '#1e293b', color: '#e2e8f0',
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)', fontSize: 12
+                    borderRadius: 10, border: '1px solid #e2e8f0',
+                    background: '#fff', color: '#1e293b',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.1)', fontSize: 12
                   }}
-                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                  cursor={{ fill: 'rgba(20, 184, 166, 0.04)' }}
                 />
                 <Bar dataKey="score" radius={[4, 4, 0, 0]} barSize={28}>
                   {chartData.map((entry, index) => (
@@ -183,27 +180,27 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
 
       {/* Criteria Detail List */}
       <div className="glass-card" style={{ padding: 20 }}>
-        <h4 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 16 }}>Đánh giá chi tiết từng tiêu chí</h4>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Đánh giá chi tiết từng tiêu chí</h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {metrics.qualityCriteria.map((item, idx) => (
             <div key={idx} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '10px 14px', borderRadius: 10,
-              background: 'rgba(255,255,255,0.02)',
-              borderBottom: '1px solid rgba(255,255,255,0.04)'
+              background: '#f8fafc',
+              borderBottom: '1px solid #f1f5f9'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: 8,
-                  background: `${getColor(item.score)}15`,
+                  background: `${getColor(item.score)}12`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 12, fontWeight: 700, color: getColor(item.score), flexShrink: 0
                 }}>
                   {item.score}
                 </div>
-                <span style={{ fontSize: 13, fontWeight: 500, color: '#cbd5e1' }}>{item.criteria}</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: '#334155' }}>{item.criteria}</span>
               </div>
-              <span style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic', textAlign: 'right', maxWidth: '40%' }}>
+              <span style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', textAlign: 'right', maxWidth: '40%' }}>
                 {item.comment}
               </span>
             </div>
@@ -213,17 +210,18 @@ const StepAnalysis: React.FC<StepAnalysisProps> = ({ metrics, onContinue }) => {
 
       {/* Plagiarism layers */}
       <div className="glass-card" style={{ padding: 20 }}>
-        <h4 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ShieldCheck size={18} color="#818cf8" /> Kiểm tra Đạo văn
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ShieldCheck size={18} color="#14b8a6" /> Kiểm tra Đạo văn
         </h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
           {[
-            { icon: <CheckCircle2 size={16} />, color: '#818cf8', bg: 'rgba(99, 102, 241, 0.1)', title: 'Database Nội bộ', desc: 'So sánh với 5,000+ SKKN mẫu' },
-            { icon: <Search size={16} />, color: '#a78bfa', bg: 'rgba(167, 139, 250, 0.1)', title: 'Internet Real-time', desc: 'Quét trùng lặp câu văn' },
-            { icon: <Globe size={16} />, color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', title: 'Web Giáo dục', desc: 'violet.vn, moet.gov.vn...' },
+            { icon: <CheckCircle2 size={16} />, color: '#14b8a6', bg: '#f0fdfa', title: 'Database Nội bộ', desc: 'So sánh với 5,000+ SKKN mẫu' },
+            { icon: <Search size={16} />, color: '#8b5cf6', bg: '#f5f3ff', title: 'Internet Real-time', desc: 'Quét trùng lặp câu văn' },
+            { icon: <Globe size={16} />, color: '#f59e0b', bg: '#fffbeb', title: 'Web Giáo dục', desc: 'violet.vn, moet.gov.vn...' },
           ].map((layer, i) => (
             <div key={i} style={{
-              padding: 14, borderRadius: 10, background: layer.bg, border: `1px solid ${layer.color}20`
+              padding: 14, borderRadius: 10, background: layer.bg, border: `1px solid ${layer.color}20`,
+              boxShadow: '0 2px 0 rgba(0,0,0,0.03)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: layer.color, marginBottom: 6 }}>
                 {layer.icon}

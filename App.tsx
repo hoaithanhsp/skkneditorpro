@@ -1,31 +1,37 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AppStep, SKKNData, SectionContent, TitleSuggestion, ToastMessage } from './types';
-import { SKKN_SECTIONS, STEP_LABELS } from './constants';
+import { AppStep, SKKNData, SectionContent, TitleSuggestion, ToastMessage, HistoryEntry } from './types';
+import { STEP_LABELS } from './constants';
 import * as geminiService from './services/geminiService';
+import * as historyService from './services/historyService';
 import StepUpload from './components/StepUpload';
 import StepAnalysis from './components/StepAnalysis';
 import StepDashboard from './components/StepDashboard';
 import StepTitle from './components/StepTitle';
 import StepEditor from './components/StepEditor';
 import ApiKeyModal from './components/ApiKeyModal';
-import { Settings, Check, Key, AlertCircle } from 'lucide-react';
+import HistoryPanel from './components/HistoryPanel';
+import { Settings, Check, Key, AlertCircle, Clock } from 'lucide-react';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 
-// --- Utility to parse text into sections ---
-const parseSectionsFromText = (text: string): SectionContent[] => {
+// --- Local fallback parser (used if AI parse fails) ---
+const parseSectionsLocal = (text: string): SectionContent[] => {
   const sections: SectionContent[] = [];
-
-  const keywords = [
-    { key: 'PHẦN I', id: 'intro' },
-    { key: 'PHẦN II', id: 'theory' },
-    { key: 'PHẦN III', id: 'reality' },
-    { key: 'PHẦN IV', id: 'solution' },
-    { key: 'PHẦN V', id: 'result' },
-    { key: 'PHẦN VI', id: 'conclusion' }
+  // Try flexible patterns
+  const patterns = [
+    /(?:PHẦN\s+[IVXLC]+|Phần\s+[IVXLC]+|CHƯƠNG\s+\d+|A\.|B\.|C\.|D\.|E\.|F\.)\s*[:.]?\s*/gi,
   ];
 
   const upperText = text.toUpperCase();
+  const keywords = [
+    { key: 'PHẦN I', id: 'section-1' },
+    { key: 'PHẦN II', id: 'section-2' },
+    { key: 'PHẦN III', id: 'section-3' },
+    { key: 'PHẦN IV', id: 'section-4' },
+    { key: 'PHẦN V', id: 'section-5' },
+    { key: 'PHẦN VI', id: 'section-6' },
+    { key: 'PHẦN VII', id: 'section-7' },
+  ];
 
   keywords.forEach((kw, index) => {
     const nextKw = keywords[index + 1];
@@ -41,17 +47,10 @@ const parseSectionsFromText = (text: string): SectionContent[] => {
 
       sections.push({
         id: kw.id,
-        title: SKKN_SECTIONS.find(s => s.id === kw.id)?.name || titleLine,
+        title: titleLine.trim(),
+        level: 1,
+        parentId: undefined,
         originalContent: body,
-        refinedContent: '',
-        isProcessing: false,
-        suggestions: []
-      });
-    } else {
-      sections.push({
-        id: kw.id,
-        title: SKKN_SECTIONS.find(s => s.id === kw.id)?.name || kw.key,
-        originalContent: '',
         refinedContent: '',
         isProcessing: false,
         suggestions: []
@@ -65,6 +64,7 @@ const parseSectionsFromText = (text: string): SectionContent[] => {
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<AppStep>(AppStep.UPLOAD);
+  const [maxReachedStep, setMaxReachedStep] = useState<number>(0);
   const [data, setData] = useState<SKKNData>({
     fileName: '',
     originalText: '',
@@ -77,6 +77,7 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingSectionId, setProcessingSectionId] = useState<string | null>(null);
   const [showApiModal, setShowApiModal] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Check API key on mount
@@ -86,12 +87,42 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const hasApiKey = !!geminiService.getApiKey();
+
   // Toast helper
   const addToast = useCallback((type: ToastMessage['type'], message: string) => {
     const id = Date.now().toString();
     setToasts(prev => [...prev, { id, type, message }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
+
+  // Update maxReachedStep when moving forward
+  const goToStep = useCallback((step: AppStep) => {
+    setCurrentStep(step);
+    setMaxReachedStep(prev => Math.max(prev, step));
+  }, []);
+
+  // --- Step click handler (navigate back) ---
+  const handleStepClick = (step: number) => {
+    if (step <= maxReachedStep && step !== currentStep) {
+      setCurrentStep(step as AppStep);
+    }
+  };
+
+  // --- Auto-save to history ---
+  const autoSave = useCallback(() => {
+    if (data.originalText && data.fileName) {
+      historyService.saveSession(data, maxReachedStep);
+    }
+  }, [data, maxReachedStep]);
+
+  // --- Load from history ---
+  const handleLoadSession = (entry: HistoryEntry) => {
+    setData(entry.data);
+    setMaxReachedStep(entry.maxReachedStep);
+    setCurrentStep(entry.maxReachedStep as AppStep);
+    addToast('info', `Đã tải lại: "${entry.fileName}"`);
+  };
 
   // --- Handlers ---
   const handleUpload = async (text: string, fileName: string) => {
@@ -101,8 +132,32 @@ const App: React.FC = () => {
     }
     setIsProcessing(true);
     try {
-      const sections = parseSectionsFromText(text);
+      // Step 1: AI analysis
       const result = await geminiService.analyzeSKKN(text);
+
+      // Step 2: AI structure parsing (flexible)
+      let sections: SectionContent[] = [];
+      try {
+        const parsed = await geminiService.parseStructure(text);
+        sections = parsed.map(s => ({
+          id: s.id,
+          title: s.title,
+          level: s.level || 1,
+          parentId: s.parentId || undefined,
+          originalContent: s.content || '',
+          refinedContent: '',
+          isProcessing: false,
+          suggestions: []
+        }));
+      } catch (parseError) {
+        console.warn('AI parse failed, using local fallback', parseError);
+        sections = parseSectionsLocal(text);
+      }
+
+      // Ensure at least some sections
+      if (sections.length === 0) {
+        sections = parseSectionsLocal(text);
+      }
 
       setData(prev => ({
         ...prev,
@@ -112,8 +167,20 @@ const App: React.FC = () => {
         analysis: result.analysis,
         sections
       }));
-      setCurrentStep(AppStep.ANALYZING);
-      addToast('success', 'Phân tích hoàn tất!');
+      goToStep(AppStep.ANALYZING);
+      addToast('success', `Phân tích hoàn tất! Tìm thấy ${sections.length} mục/mục con.`);
+
+      // Auto-save
+      setTimeout(() => {
+        historyService.saveSession({
+          ...data,
+          fileName,
+          originalText: text,
+          currentTitle: result.currentTitle,
+          analysis: result.analysis,
+          sections
+        }, AppStep.ANALYZING);
+      }, 500);
     } catch (error: any) {
       console.error("Analysis failed", error);
       if (error.message === 'API_KEY_MISSING') {
@@ -127,11 +194,11 @@ const App: React.FC = () => {
   };
 
   const handleAnalysisContinue = () => {
-    setCurrentStep(AppStep.DASHBOARD);
+    goToStep(AppStep.DASHBOARD);
   };
 
   const handleDashboardContinue = async () => {
-    setCurrentStep(AppStep.TITLE_SELECTION);
+    goToStep(AppStep.TITLE_SELECTION);
     setIsProcessing(true);
     try {
       const summary = data.originalText.substring(0, 3000);
@@ -147,8 +214,9 @@ const App: React.FC = () => {
 
   const handleTitleSelect = (title: TitleSuggestion) => {
     setData(prev => ({ ...prev, selectedNewTitle: title }));
-    setCurrentStep(AppStep.CONTENT_REFINEMENT);
+    goToStep(AppStep.CONTENT_REFINEMENT);
     addToast('info', `Đã chọn: "${title.title.substring(0, 50)}..."`);
+    autoSave();
   };
 
   const handleRefineSection = async (sectionId: string) => {
@@ -168,7 +236,9 @@ const App: React.FC = () => {
           )
         }));
         addToast('success', `Đã viết lại "${section.title}" thành công!`);
-      } catch (e) {
+        // Auto-save after refining
+        setTimeout(autoSave, 500);
+      } catch (e: any) {
         console.error("Refine failed", e);
         addToast('error', `Lỗi viết lại phần "${section.title}".`);
       }
@@ -195,15 +265,19 @@ const App: React.FC = () => {
         spacing: { after: 400 }
       }));
 
-      // Sections
+      // Sections (respecting hierarchy)
       data.sections.forEach(s => {
+        const headingLevel = s.level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_1;
+        const indent = s.level === 2 ? 360 : 0;
+
         docChildren.push(new Paragraph({
           children: [new TextRun({
             text: s.title.toUpperCase(),
-            bold: true, size: 26, font: 'Times New Roman'
+            bold: true, size: s.level === 2 ? 24 : 26, font: 'Times New Roman'
           })],
-          heading: HeadingLevel.HEADING_1,
-          spacing: { before: 400, after: 200 }
+          heading: headingLevel,
+          spacing: { before: s.level === 2 ? 200 : 400, after: 200 },
+          indent: { left: indent }
         }));
 
         const content = s.refinedContent || s.originalContent;
@@ -215,7 +289,7 @@ const App: React.FC = () => {
               size: 26, font: 'Times New Roman'
             })],
             spacing: { after: 100 },
-            indent: { firstLine: 720 }
+            indent: { firstLine: 720, left: indent }
           }));
         });
       });
@@ -228,6 +302,7 @@ const App: React.FC = () => {
       const outName = `SKKN_Upgrade_${data.fileName?.replace(/\.[^.]+$/, '') || 'document'}.docx`;
       saveAs(blob, outName);
       addToast('success', `Đã tải xuống: ${outName}`);
+      autoSave();
     } catch (error) {
       console.error('Export error:', error);
       // Fallback to txt
@@ -239,22 +314,22 @@ const App: React.FC = () => {
         `TÊN ĐỀ TÀI MỚI: ${data.selectedNewTitle?.title}\n\n` + fullContent
       ], { type: 'text/plain;charset=utf-8' });
 
-      saveAs(blob, `SKKN_Upgrade_${data.fileName || 'document'}.txt`);
-      addToast('info', 'Đã xuất file .txt (không thể tạo .docx)');
+      const outName = `SKKN_Upgrade_${data.fileName?.replace(/\.[^.]+$/, '') || 'document'}.txt`;
+      saveAs(blob, outName);
+      addToast('info', `Đã tải dạng text: ${outName}`);
     }
   };
-
-  const hasApiKey = !!geminiService.getApiKey();
 
   return (
     <div style={{ minHeight: '100vh' }}>
       {/* Header */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 50,
-        background: 'rgba(15, 14, 23, 0.85)',
+        background: 'rgba(255, 255, 255, 0.85)',
         backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        padding: '0 20px', height: 64
+        borderBottom: '1px solid rgba(20, 184, 166, 0.1)',
+        padding: '0 20px', height: 64,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
       }}>
         <div style={{
           maxWidth: 1200, margin: '0 auto', height: '100%',
@@ -264,33 +339,39 @@ const App: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 10,
-              background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+              background: 'linear-gradient(135deg, #14b8a6, #0d9488)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: 'white', fontWeight: 800, fontSize: 16,
-              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.4)'
+              boxShadow: '0 4px 0 #0f766e, 0 6px 12px rgba(13, 148, 136, 0.3)'
             }}>
               S
             </div>
             <span style={{
               fontSize: 18, fontWeight: 800,
-              background: 'linear-gradient(135deg, #a5b4fc, #818cf8)',
+              background: 'linear-gradient(135deg, #0d9488, #115e59)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
             }}>
               SKKN Editor Pro
             </span>
           </div>
 
-          {/* Progress Steps */}
+          {/* Progress Steps (Clickable) */}
           <div className="step-indicator" style={{ display: 'flex', alignItems: 'center' }}>
             {STEP_LABELS.map((item, i) => (
               <React.Fragment key={item.step}>
-                <div className="step-item">
+                <div
+                  className="step-item"
+                  onClick={() => handleStepClick(item.step)}
+                  style={{ cursor: item.step <= maxReachedStep ? 'pointer' : 'default' }}
+                  title={item.step <= maxReachedStep ? `Nhấn để quay lại: ${item.label}` : ''}
+                >
                   <div className={`step-circle ${currentStep > item.step ? 'completed' : currentStep === item.step ? 'active' : 'upcoming'
                     }`}>
                     {currentStep > item.step ? <Check size={14} /> : item.icon}
                   </div>
                   <span className="step-label" style={{
-                    color: currentStep >= item.step ? '#a5b4fc' : '#475569'
+                    color: currentStep >= item.step ? '#0d9488' : '#94a3b8',
+                    fontWeight: currentStep === item.step ? 700 : 400
                   }}>
                     {item.label}
                   </span>
@@ -302,13 +383,20 @@ const App: React.FC = () => {
             ))}
           </div>
 
-          {/* Settings */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Settings + History */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {!hasApiKey && (
-              <span style={{ fontSize: 12, color: '#fb7185', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 12, color: '#e11d48', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <AlertCircle size={14} /> Chưa có API key
               </span>
             )}
+            <button
+              onClick={() => setShowHistory(true)}
+              className="btn-secondary btn-sm"
+              title="Lịch sử SKKN đã phân tích"
+            >
+              <Clock size={14} />
+            </button>
             <button
               onClick={() => setShowApiModal(true)}
               className="btn-secondary btn-sm"
@@ -374,6 +462,13 @@ const App: React.FC = () => {
           addToast('success', 'API Key đã được lưu!');
         }}
         canClose={hasApiKey}
+      />
+
+      {/* History Panel */}
+      <HistoryPanel
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        onLoad={handleLoadSession}
       />
 
       {/* Toast Notifications */}

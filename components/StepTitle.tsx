@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { TitleSuggestion } from '../types';
-import { Sparkles, ArrowRight, Lightbulb, AlertCircle, Loader2, Trophy, Target, CheckCircle2 } from 'lucide-react';
+import { Sparkles, ArrowRight, Lightbulb, AlertCircle, Loader2, Trophy, Target } from 'lucide-react';
 
 interface StepTitleProps {
     currentTitle: string;
@@ -20,12 +20,13 @@ const StepTitle: React.FC<StepTitleProps> = ({ currentTitle, suggestions, onSele
             }}>
                 <div className="animate-pulse-glow" style={{
                     width: 80, height: 80, borderRadius: '50%',
-                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(245, 158, 11, 0.2))',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    background: 'linear-gradient(135deg, #ccfbf1, #fef3c7)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: '0 4px 0 #99f6e4, 0 8px 24px rgba(20, 184, 166, 0.2)'
                 }}>
-                    <Sparkles size={36} color="#fbbf24" className="animate-spin-slow" />
+                    <Sparkles size={36} color="#f59e0b" className="animate-spin-slow" />
                 </div>
-                <h3 style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0' }}>Đang nghiên cứu đề tài mới...</h3>
+                <h3 style={{ fontSize: 20, fontWeight: 700, color: '#134e4a' }}>Đang nghiên cứu đề tài mới...</h3>
                 <p style={{ color: '#64748b', fontSize: 14, textAlign: 'center', maxWidth: 400 }}>
                     AI đang phân tích nội dung, tìm điểm độc đáo và áp dụng công thức đặt tên sáng tạo.
                 </p>
@@ -47,12 +48,12 @@ const StepTitle: React.FC<StepTitleProps> = ({ currentTitle, suggestions, onSele
                 <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                     Tên đề tài hiện tại
                 </p>
-                <p style={{ fontSize: 17, fontWeight: 600, color: '#cbd5e1', lineHeight: 1.5 }}>"{currentTitle}"</p>
+                <p style={{ fontSize: 17, fontWeight: 600, color: '#334155', lineHeight: 1.5 }}>"{currentTitle}"</p>
                 <div style={{
                     marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6,
                     padding: '4px 12px', borderRadius: 999,
-                    background: 'rgba(244, 63, 94, 0.08)', border: '1px solid rgba(244, 63, 94, 0.15)',
-                    color: '#fb7185', fontSize: 12
+                    background: '#fff1f2', border: '1px solid #fecdd3',
+                    color: '#e11d48', fontSize: 12
                 }}>
                     <AlertCircle size={14} />
                     Tên đề tài khá phổ biến, cần tăng tính cụ thể và điểm mới.
@@ -63,8 +64,8 @@ const StepTitle: React.FC<StepTitleProps> = ({ currentTitle, suggestions, onSele
             <div style={{ display: 'grid', gridTemplateColumns: '5fr 7fr', gap: 20 }}>
                 {/* Left: List */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <h3 style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <Lightbulb size={18} color="#fbbf24" />
+                    <h3 style={{ fontSize: 16, fontWeight: 700, color: '#134e4a', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <Lightbulb size={18} color="#f59e0b" />
                         5 Đề xuất Mới
                     </h3>
                     {suggestions.map((s, idx) => (
@@ -76,14 +77,14 @@ const StepTitle: React.FC<StepTitleProps> = ({ currentTitle, suggestions, onSele
                         >
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    {idx === 0 ? <Trophy size={14} color="#fbbf24" /> : <Target size={14} color="#64748b" />}
+                                    {idx === 0 ? <Trophy size={14} color="#f59e0b" /> : <Target size={14} color="#94a3b8" />}
                                     <span className={`badge ${idx === 0 ? 'badge-warn' : 'badge-primary'}`}>
                                         #{s.id} {idx === 0 ? 'Khuyến nghị' : ''}
                                     </span>
                                 </div>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: '#818cf8' }}>{s.score}/10</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: '#0d9488' }}>{s.score}/10</span>
                             </div>
-                            <p style={{ fontSize: 13, fontWeight: 500, color: '#cbd5e1', lineHeight: 1.5, margin: 0 }}>
+                            <p style={{ fontSize: 13, fontWeight: 500, color: '#334155', lineHeight: 1.5, margin: 0 }}>
                                 {s.title}
                             </p>
                         </div>
@@ -94,7 +95,7 @@ const StepTitle: React.FC<StepTitleProps> = ({ currentTitle, suggestions, onSele
                 <div>
                     {selectedSuggestion && (
                         <div className="glass-card" style={{ padding: 24, position: 'sticky', top: 100 }}>
-                            <h3 style={{ fontSize: 20, fontWeight: 700, color: '#c7d2fe', lineHeight: 1.5, marginBottom: 20 }}>
+                            <h3 style={{ fontSize: 20, fontWeight: 700, color: '#0f766e', lineHeight: 1.5, marginBottom: 20 }}>
                                 "{selectedSuggestion.title}"
                             </h3>
 
@@ -107,8 +108,9 @@ const StepTitle: React.FC<StepTitleProps> = ({ currentTitle, suggestions, onSele
                                     {selectedSuggestion.noveltyPoints.map((point, i) => (
                                         <span key={i} style={{
                                             padding: '6px 12px', borderRadius: 8, fontSize: 12,
-                                            background: 'rgba(99, 102, 241, 0.08)', color: '#a5b4fc',
-                                            border: '1px solid rgba(99, 102, 241, 0.15)'
+                                            background: '#f0fdfa', color: '#0d9488',
+                                            border: '1px solid #99f6e4',
+                                            boxShadow: '0 1px 0 #ccfbf1'
                                         }}>
                                             {point}
                                         </span>
@@ -119,18 +121,20 @@ const StepTitle: React.FC<StepTitleProps> = ({ currentTitle, suggestions, onSele
                             {/* Stats */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
                                 <div style={{
-                                    padding: 14, borderRadius: 10, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)'
+                                    padding: 14, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0',
+                                    boxShadow: '0 2px 0 #f1f5f9'
                                 }}>
                                     <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Trùng lặp</p>
-                                    <p style={{ fontSize: 24, fontWeight: 800, color: '#34d399', margin: 0 }}>{selectedSuggestion.overlapPercentage}%</p>
-                                    <p style={{ fontSize: 11, color: '#475569', margin: 0 }}>Rất thấp (An toàn)</p>
+                                    <p style={{ fontSize: 24, fontWeight: 800, color: '#10b981', margin: 0 }}>{selectedSuggestion.overlapPercentage}%</p>
+                                    <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>Rất thấp (An toàn)</p>
                                 </div>
                                 <div style={{
-                                    padding: 14, borderRadius: 10, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)'
+                                    padding: 14, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0',
+                                    boxShadow: '0 2px 0 #f1f5f9'
                                 }}>
                                     <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Tính khả thi</p>
-                                    <p style={{ fontSize: 24, fontWeight: 800, color: '#e2e8f0', margin: 0 }}>{selectedSuggestion.feasibility}</p>
-                                    <p style={{ fontSize: 11, color: '#475569', margin: 0 }}>Dễ thực hiện</p>
+                                    <p style={{ fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0 }}>{selectedSuggestion.feasibility}</p>
+                                    <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>Dễ thực hiện</p>
                                 </div>
                             </div>
 
@@ -140,7 +144,7 @@ const StepTitle: React.FC<StepTitleProps> = ({ currentTitle, suggestions, onSele
                                 Chọn đề tài này & Bắt đầu Sửa nội dung
                                 <ArrowRight size={18} />
                             </button>
-                            <p style={{ textAlign: 'center', fontSize: 11, color: '#475569', marginTop: 10 }}>
+                            <p style={{ textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
                                 Hệ thống sẽ gợi ý sửa các phần I→VI theo hướng đề tài mới.
                             </p>
                         </div>

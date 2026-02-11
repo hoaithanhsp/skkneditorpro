@@ -4,8 +4,6 @@ export enum AppStep {
   DASHBOARD = 2,
   TITLE_SELECTION = 3,
   CONTENT_REFINEMENT = 4,
-  REVIEW = 5,
-  EXPORT = 6
 }
 
 export interface AnalysisMetrics {
@@ -54,6 +52,8 @@ export interface SectionSuggestion {
 export interface SectionContent {
   id: string;
   title: string;
+  level: number;        // 1 = mục lớn, 2 = mục con
+  parentId?: string;     // id mục cha (nếu level=2)
   originalContent: string;
   refinedContent: string;
   isProcessing: boolean;
@@ -74,6 +74,20 @@ export interface ToastMessage {
   id: string;
   type: 'success' | 'error' | 'info';
   message: string;
+}
+
+// --- History ---
+export interface HistoryEntry {
+  id: string;
+  fileName: string;
+  currentTitle: string;
+  selectedNewTitle: string;
+  timestamp: number;
+  sectionsCount: number;
+  completedCount: number;
+  // full data for restore
+  data: SKKNData;
+  maxReachedStep: number;
 }
 
 export const AI_MODELS = [

@@ -150,6 +150,61 @@ export const analyzeSKKN = async (text: string): Promise<{ analysis: AnalysisMet
   });
 };
 
+// --- Parse SKKN Structure (AI-powered) ---
+export const parseStructure = async (text: string): Promise<{ id: string, title: string, level: number, parentId: string, content: string }[]> => {
+  const ai = getAI();
+  const truncated = text.substring(0, 12000);
+
+  const prompt = `
+    Bạn là chuyên gia phân tích cấu trúc Sáng kiến Kinh nghiệm (SKKN) Việt Nam.
+    
+    NHIỆM VỤ: Phân tích văn bản SKKN bên dưới và TÁCH RA thành các mục lớn và mục con.
+    
+    QUY TẮC PHÂN TÍCH:
+    1. Tìm TẤT CẢ mục lớn (Phần I, II, III, IV, V, VI... hoặc biến thể như "PHẦN MỞ ĐẦU", "A.", "I.", "CHƯƠNG 1" v.v.)
+    2. Trong mỗi mục lớn, tìm CÁC MỤC CON. Đặc biệt:
+       - "Giải pháp 1", "Giải pháp 2", "Biện pháp 1", "Biện pháp 2"... → PHẢI tách thành mục con riêng biệt
+       - "1.", "2.", "3." bên trong 1 phần lớn → tách thành mục con
+       - "a)", "b)", "2.1", "2.2" → tách thành mục con
+    3. Mỗi mục con phải có nội dung riêng (content) để có thể sửa độc lập.
+    4. KHÔNG bỏ sót bất kỳ nội dung nào.
+    5. Trường "id" phải unique, dạng: "section-1", "section-2", "section-2-1", "section-2-2"...
+    6. Trường "parentId" = "" nếu là mục lớn (level 1), hoặc = id của mục cha nếu là mục con (level 2).
+    7. "title" = tên mục/tiêu đề chính xác như trong văn bản gốc.
+    8. "content" = toàn bộ nội dung thuộc mục đó (KHÔNG bao gồm nội dung của mục con).
+    
+    VĂN BẢN SKKN:
+    """
+    ${truncated}
+    """
+  `;
+
+  return callWithFallback(async (model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              title: { type: Type.STRING },
+              level: { type: Type.INTEGER, description: "1=mục lớn, 2=mục con" },
+              parentId: { type: Type.STRING, description: "Empty for level 1, parent id for level 2" },
+              content: { type: Type.STRING, description: "Nội dung thuộc mục này" }
+            }
+          }
+        }
+      }
+    });
+    if (!response.text) throw new Error("No response from AI");
+    return JSON.parse(response.text);
+  });
+};
+
 // --- Title Suggestions ---
 export const generateTitleSuggestions = async (currentTitle: string, contentSummary: string): Promise<TitleSuggestion[]> => {
   const ai = getAI();
@@ -268,11 +323,13 @@ export const refineSectionContent = async (
     6. TĂNG CƯỜNG tính mới: cách tiếp cận độc đáo, góc nhìn khác biệt.
     7. ĐẢM BẢO không trùng lặp với các SKKN phổ biến - diễn đạt HOÀN TOÀN MỚI.
     8. Cấu trúc rõ ràng, mạch lạc, có luận điểm - luận cứ - dẫn chứng.
+    9. GIỮ NGUYÊN mọi công thức toán học — viết dưới dạng LaTeX (ví dụ: $x^2 + y^2 = z^2$, \\frac{a}{b}, \\sqrt{n}).
+    10. KHÔNG được bỏ, thay đổi, hay viết lại bất kỳ công thức toán nào. Chỉ sửa văn xuôi xung quanh.
     
     Nội dung gốc:
     "${originalContent}"
     
-    Trả về nội dung đã sửa dưới dạng văn bản thuần.
+    Trả về nội dung đã sửa. Định dạng đẹp, chuẩn. Công thức toán viết dạng LaTeX.
   `;
 
   return callWithFallback(async (model) => {
