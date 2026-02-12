@@ -1,7 +1,10 @@
 [
     {"username": "admin","password": "123","displayName": "Quản trị viên"},
     {"username": "admin1","password": "SKKN100","displayName": "GV"},
+    {"username": "chutrinhtayninh@gmail.com","password": "SKKN100","displayName": "Chu Lan Trinh"},
+    {"username": "Xhuong91@gmail.com","password": "SKKN100","displayName": "Nguyễn Thị Xuân Hương"},
     {"username": "Hoangha220488@gmail.com","password": "SKKN100","displayName": "Hoàng Thị Hà"},
     {"username": "gv01","password": "12345","displayName": "Trần Hoài Thanh"}
 ]
+
 
