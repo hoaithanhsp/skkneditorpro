@@ -2,6 +2,7 @@
     {"username": "admin","password": "123","displayName": "Quản trị viên"},
     {"username": "huonggiangpc89@gmail.com","password": "SKKN100","displayName": "Nguyễn Hương Giang"},
     {"username": "Buihuusonkx@gmail.com","password": "SKKN100","displayName": "Bùi Thị Kiên"},
+    {"username": "lebaochau18042005@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
     {"username": "maria.doantrang@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
     {"username": "quachlong220666@gmail.com","password": "SKKN100","displayName": "GV"},
     {"username": "chutrinhtayninh@gmail.com","password": "SKKN100","displayName": "Chu Lan Trinh"},
@@ -9,6 +10,7 @@
     {"username": "Hoangha220488@gmail.com","password": "SKKN100","displayName": "Hoàng Thị Hà"},
     {"username": "gv01","password": "12345","displayName": "Trần Hoài Thanh"}
 ]
+
 
 
 
