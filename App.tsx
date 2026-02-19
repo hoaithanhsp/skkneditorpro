@@ -13,49 +13,89 @@ import HistoryPanel from './components/HistoryPanel';
 import ShortenSKKN from './components/ShortenSKKN';
 import LoginScreen from './components/LoginScreen';
 import { Settings, Check, Key, AlertCircle, Clock, Scissors, LogOut } from 'lucide-react';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } from 'docx';
 import { saveAs } from 'file-saver';
 
-// --- Local fallback parser (used if AI parse fails) ---
+// --- Local fallback parser (used if AI parse fails) --- MULTI-LEVEL ---
 const parseSectionsLocal = (text: string): SectionContent[] => {
-  const sections: SectionContent[] = [];
+  // === STEP 1: Detect ALL section headings at every level ===
+  interface SectionMatch {
+    index: number;
+    title: string;
+    id: string;
+    level: number;
+  }
+  let allMatches: SectionMatch[] = [];
+  let matchCounter = 0;
 
-  // Multi-pattern section detection - covers most SKKN formats
-  const sectionPatterns: { regex: RegExp; idPrefix: string }[] = [
-    // "PHẦN I", "PHẦN II", ... "PHẦN VII" (Roman numerals)
+  // ----- Level 1 patterns -----
+  const level1Patterns: { regex: RegExp; idPrefix: string }[] = [
     { regex: /^(?:PHẦN|Phần)\s+([IVXLC]+)\b[.:)]*\s*(.*)/gim, idPrefix: 'phan' },
-    // "I.", "II.", "III." standalone section numbering
     { regex: /^([IVXLC]+)\.\s+([\wÀ-ỹ].*)/gim, idPrefix: 'roman' },
-    // "CHƯƠNG 1", "Chương 2"
     { regex: /^(?:CHƯƠNG|Chương)\s+(\d+)\b[.:)]*\s*(.*)/gim, idPrefix: 'chuong' },
-    // Known standalone section titles (often without numbering)
     { regex: /^(MỤC LỤC|TÀI LIỆU THAM KHẢO|PHỤ LỤC|DANH MỤC|LỜI CAM ĐOAN|LỜI CẢM ƠN|KẾT LUẬN VÀ KIẾN NGHỊ)\b(.*)/gim, idPrefix: 'named' },
   ];
-
-  interface SectionMatch { index: number; title: string; id: string }
-  let allMatches: SectionMatch[] = [];
-
-  // Collect all matches across all patterns
-  for (const { regex, idPrefix } of sectionPatterns) {
+  for (const { regex, idPrefix } of level1Patterns) {
     let match;
     regex.lastIndex = 0;
     while ((match = regex.exec(text)) !== null) {
-      const fullTitle = match[0].trim();
-      const id = `${idPrefix}-${allMatches.length + 1}`;
-      allMatches.push({ index: match.index, title: fullTitle, id });
+      matchCounter++;
+      allMatches.push({ index: match.index, title: match[0].trim(), id: `${idPrefix}-${matchCounter}`, level: 1 });
     }
   }
 
-  // Deduplicate overlapping matches (same position within 5 chars → keep first)
+  // ----- Level 2 patterns: "1.", "2.", "3." or "A.", "B." at start of line -----
+  const level2Regex = /^(\d+)\.\s+([\wÀ-ỹ][\wÀ-ỹ\s,;:'"()–\-]{5,})/gim;
+  let m2;
+  level2Regex.lastIndex = 0;
+  while ((m2 = level2Regex.exec(text)) !== null) {
+    matchCounter++;
+    allMatches.push({ index: m2.index, title: m2[0].trim(), id: `l2-${matchCounter}`, level: 2 });
+  }
+
+  // ----- Level 3 patterns: "1.1.", "1.2.", "2.1.", "4.2.1." etc -----
+  const level3Regex = /^(\d+\.\d+\.?\s+[\wÀ-ỹ][\wÀ-ỹ\s,;:'"()–\-]{5,})/gim;
+  let m3;
+  level3Regex.lastIndex = 0;
+  while ((m3 = level3Regex.exec(text)) !== null) {
+    matchCounter++;
+    allMatches.push({ index: m3.index, title: m3[0].trim(), id: `l3-${matchCounter}`, level: 3 });
+  }
+
+  // ----- "Giải pháp 1/2/3...", "Biện pháp 1/2/3..." (level 3) -----
+  const solutionRegex = /^(?:Giải pháp|Biện pháp|Bước)\s+(\d+)\s*[.:)]*\s*(.*)/gim;
+  let ms;
+  solutionRegex.lastIndex = 0;
+  while ((ms = solutionRegex.exec(text)) !== null) {
+    matchCounter++;
+    allMatches.push({ index: ms.index, title: ms[0].trim(), id: `sol-${matchCounter}`, level: 3 });
+  }
+
+  // ----- "a)", "b)", "c)" sub-sections (level 3) -----
+  const letterRegex = /^([a-hA-H])\)\s+([\wÀ-ỹ][\wÀ-ỹ\s,;:'"()–\-]{5,})/gim;
+  let ml;
+  letterRegex.lastIndex = 0;
+  while ((ml = letterRegex.exec(text)) !== null) {
+    matchCounter++;
+    allMatches.push({ index: ml.index, title: ml[0].trim(), id: `let-${matchCounter}`, level: 3 });
+  }
+
+  // === STEP 2: Deduplicate overlapping matches ===
   allMatches.sort((a, b) => a.index - b.index);
   const deduped: SectionMatch[] = [];
   for (const m of allMatches) {
     if (deduped.length === 0 || Math.abs(m.index - deduped[deduped.length - 1].index) > 5) {
       deduped.push(m);
+    } else {
+      // Keep the one with higher level (more specific)
+      const last = deduped[deduped.length - 1];
+      if (m.level > last.level) {
+        deduped[deduped.length - 1] = m;
+      }
     }
   }
 
-  // If standard patterns found nothing, try "PHẦN I" keyword approach as last resort
+  // === STEP 3: Fallback — "PHẦN I" keyword approach ===
   if (deduped.length === 0) {
     const upperText = text.toUpperCase();
     const keywords = [
@@ -64,19 +104,21 @@ const parseSectionsLocal = (text: string): SectionContent[] => {
       { key: 'PHẦN V', id: 'section-5' }, { key: 'PHẦN VI', id: 'section-6' },
       { key: 'PHẦN VII', id: 'section-7' }, { key: 'PHẦN VIII', id: 'section-8' },
     ];
-
     for (const kw of keywords) {
       const idx = upperText.indexOf(kw.key);
       if (idx !== -1) {
         const lineEnd = text.indexOf('\n', idx);
         const title = text.substring(idx, lineEnd !== -1 ? lineEnd : idx + 80).trim();
-        deduped.push({ index: idx, title, id: kw.id });
+        deduped.push({ index: idx, title, id: kw.id, level: 1 });
       }
     }
     deduped.sort((a, b) => a.index - b.index);
   }
 
-  // Extract content between sections
+  // === STEP 4: Build hierarchy — assign parentId based on level ===
+  const sections: SectionContent[] = [];
+  const parentStack: { id: string; level: number }[] = [];
+
   for (let i = 0; i < deduped.length; i++) {
     const current = deduped[i];
     const next = deduped[i + 1];
@@ -87,22 +129,179 @@ const parseSectionsLocal = (text: string): SectionContent[] => {
     const titleLine = rawContent.split('\n')[0];
     const body = rawContent.substring(titleLine.length).trim();
 
+    // Find parent: walk up the stack until we find a section with lower level
+    while (parentStack.length > 0 && parentStack[parentStack.length - 1].level >= current.level) {
+      parentStack.pop();
+    }
+    const parentId = parentStack.length > 0 ? parentStack[parentStack.length - 1].id : undefined;
+
     sections.push({
       id: current.id,
       title: titleLine.trim(),
-      level: 1,
-      parentId: undefined,
+      level: current.level,
+      parentId,
       originalContent: body,
       refinedContent: '',
       isProcessing: false,
       suggestions: [],
       editSuggestions: []
     });
+
+    parentStack.push({ id: current.id, level: current.level });
   }
 
   return sections;
 };
 
+// --- Parse markdown content to docx elements (supports tables with borders) ---
+const parseContentToDocxElements = (content: string, indent: number = 0): (Paragraph | Table)[] => {
+  const elements: (Paragraph | Table)[] = [];
+  const lines = content.split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Detect markdown table block
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+        tableLines.push(lines[i].trim());
+        i++;
+      }
+
+      if (tableLines.length >= 2) {
+        // Parse header row
+        const headerCells = tableLines[0].split('|').filter(c => c.trim() !== '');
+        const colCount = headerCells.length;
+
+        // Determine which rows are separator rows (e.g. |---|---|)
+        const dataRows: string[][] = [];
+        let isHeader = true;
+        for (let r = 0; r < tableLines.length; r++) {
+          const cells = tableLines[r].split('|').filter(c => c.trim() !== '');
+          // Check if this is separator row (contains only dashes, colons, spaces)
+          if (/^[\s|:\-]+$/.test(tableLines[r].replace(/\|/g, ' '))) {
+            continue; // skip separator
+          }
+          if (isHeader) {
+            dataRows.push(cells.map(c => c.trim()));
+            isHeader = false;
+          } else {
+            dataRows.push(cells.map(c => c.trim()));
+          }
+        }
+
+        if (dataRows.length > 0) {
+          const borderStyle = {
+            style: BorderStyle.SINGLE,
+            size: 1,
+            color: '000000'
+          };
+          const borders = {
+            top: borderStyle,
+            bottom: borderStyle,
+            left: borderStyle,
+            right: borderStyle,
+            insideHorizontal: borderStyle,
+            insideVertical: borderStyle
+          };
+
+          const tableRows = dataRows.map((cells, rowIdx) => {
+            // Pad or trim cells to match column count
+            const normalizedCells = Array.from({ length: colCount }, (_, ci) => cells[ci] || '');
+            return new TableRow({
+              children: normalizedCells.map(cellText =>
+                new TableCell({
+                  children: [new Paragraph({
+                    children: [new TextRun({
+                      text: cellText,
+                      bold: rowIdx === 0,
+                      size: 24,
+                      font: 'Times New Roman'
+                    })],
+                    spacing: { before: 40, after: 40 },
+                    alignment: AlignmentType.CENTER
+                  })],
+                  width: { size: Math.floor(9000 / colCount), type: WidthType.DXA },
+                  borders
+                })
+              )
+            });
+          });
+
+          elements.push(new Table({
+            rows: tableRows,
+            width: { size: 9000, type: WidthType.DXA }
+          }));
+
+          // Add spacing after table
+          elements.push(new Paragraph({ spacing: { after: 100 } }));
+        }
+      }
+      continue;
+    }
+
+    // Regular paragraph
+    if (line.trim()) {
+      // Parse inline bold (**text**) and italic (*text*)
+      const runs: TextRun[] = [];
+      const regex = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
+      let lastIndex = 0;
+      const lineText = line.trim();
+      let match;
+
+      while ((match = regex.exec(lineText)) !== null) {
+        // Text before the match
+        if (match.index > lastIndex) {
+          runs.push(new TextRun({
+            text: lineText.substring(lastIndex, match.index),
+            size: 26, font: 'Times New Roman'
+          }));
+        }
+        if (match[2]) {
+          // Bold: **text**
+          runs.push(new TextRun({
+            text: match[2],
+            bold: true, size: 26, font: 'Times New Roman'
+          }));
+        } else if (match[3]) {
+          // Italic: *text*
+          runs.push(new TextRun({
+            text: match[3],
+            italics: true, size: 26, font: 'Times New Roman'
+          }));
+        }
+        lastIndex = match.index + match[0].length;
+      }
+
+      // Remaining text
+      if (lastIndex < lineText.length) {
+        runs.push(new TextRun({
+          text: lineText.substring(lastIndex),
+          size: 26, font: 'Times New Roman'
+        }));
+      }
+
+      if (runs.length === 0) {
+        runs.push(new TextRun({
+          text: lineText,
+          size: 26, font: 'Times New Roman'
+        }));
+      }
+
+      elements.push(new Paragraph({
+        children: runs,
+        spacing: { after: 100 },
+        indent: { firstLine: 720, left: indent }
+      }));
+    }
+
+    i++;
+  }
+
+  return elements;
+};
 
 const App: React.FC = () => {
   // --- Authentication State ---
@@ -184,11 +383,33 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     setMaxReachedStep(prev => Math.max(prev, step));
   }, []);
 
-  // --- Step click handler (navigate back) ---
-  const handleStepClick = (step: number) => {
-    if (step <= maxReachedStep && step !== currentStep) {
+  // --- Step click handler (navigate to any step after upload) ---
+  const handleStepClick = async (step: number) => {
+    if (step === currentStep) return;
+
+    // After upload, allow jumping to any step
+    if (!data.originalText) return; // Must have uploaded first
+
+    // If jumping to TITLE_SELECTION and no suggestions yet, auto-generate
+    if (step === AppStep.TITLE_SELECTION && data.titleSuggestions.length === 0) {
       setCurrentStep(step as AppStep);
+      setMaxReachedStep(prev => Math.max(prev, step));
+      setIsProcessing(true);
+      try {
+        const summary = data.originalText.substring(0, 3000);
+        const suggestions = await geminiService.generateTitleSuggestions(data.currentTitle, summary);
+        setData(prev => ({ ...prev, titleSuggestions: suggestions }));
+      } catch (error) {
+        console.error('Title gen failed', error);
+        addToast('error', 'Lỗi tạo đề xuất tên đề tài.');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
     }
+
+    setCurrentStep(step as AppStep);
+    setMaxReachedStep(prev => Math.max(prev, step));
   };
 
   // --- Auto-save to history ---
@@ -219,6 +440,8 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
 
       // Step 2: AI structure parsing (flexible)
       let sections: SectionContent[] = [];
+      const localSections = parseSectionsLocal(text); // Always compute local parse for validation
+
       try {
         const parsed = await geminiService.parseStructure(text);
         sections = parsed.map(s => ({
@@ -233,17 +456,47 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
           editSuggestions: []
         }));
 
-        // VALIDATION: Cross-check with local parser to catch missing sections
-        const localSections = parseSectionsLocal(text);
+        // VALIDATION: Aggressive cross-check with local parser
         const aiLevel1Count = sections.filter(s => s.level === 1).length;
-        const localLevel1Count = localSections.length;
+        const localLevel1Count = localSections.filter(s => s.level === 1).length;
+        const aiTotalCount = sections.length;
+        const localTotalCount = localSections.length;
 
-        if (aiLevel1Count < localLevel1Count && localLevel1Count > aiLevel1Count + 1) {
-          // AI missed sections — merge local sections that AI didn't find
-          console.warn(`AI found ${aiLevel1Count} level-1 sections but local parser found ${localLevel1Count}. Merging...`);
-          const existingTitles = sections.map(s => s.title.toLowerCase().substring(0, 20));
+        console.log(`[Parse] AI: ${aiTotalCount} sections (${aiLevel1Count} L1) | Local: ${localTotalCount} sections (${localLevel1Count} L1)`);
+
+        // Case 1: AI found way too few sections — use local parser as base
+        if (aiTotalCount <= 3 && localTotalCount > aiTotalCount) {
+          console.warn(`AI only found ${aiTotalCount} sections, using local parser (${localTotalCount} sections) as base and merging AI results`);
+          // Use local as base, but try to add AI sub-sections not found locally
+          const localTitles = localSections.map(s => s.title.toLowerCase().substring(0, 25));
+          const mergedSections = [...localSections];
+          for (const aiSec of sections) {
+            const aiPrefix = aiSec.title.toLowerCase().substring(0, 25);
+            const alreadyExists = localTitles.some(t => t.includes(aiPrefix) || aiPrefix.includes(t));
+            if (!alreadyExists) {
+              mergedSections.push({ ...aiSec, id: `ai-${aiSec.id}` });
+            }
+          }
+          sections = mergedSections;
+        }
+        // Case 2: AI missing some level-1 sections compared to local
+        else if (aiLevel1Count < localLevel1Count) {
+          console.warn(`AI found ${aiLevel1Count} L1 sections but local found ${localLevel1Count}. Merging missing...`);
+          const existingTitles = sections.map(s => s.title.toLowerCase().substring(0, 25));
           for (const localSec of localSections) {
-            const titlePrefix = localSec.title.toLowerCase().substring(0, 20);
+            const titlePrefix = localSec.title.toLowerCase().substring(0, 25);
+            const alreadyExists = existingTitles.some(t => t.includes(titlePrefix) || titlePrefix.includes(t));
+            if (!alreadyExists) {
+              sections.push({ ...localSec, id: `merged-${localSec.id}` });
+            }
+          }
+        }
+        // Case 3: AI has fewer total sections than local — merge sub-sections too
+        else if (localTotalCount > aiTotalCount + 2) {
+          console.warn(`Local parser found ${localTotalCount} total sections vs AI's ${aiTotalCount}. Merging missing sub-sections...`);
+          const existingTitles = sections.map(s => s.title.toLowerCase().substring(0, 25));
+          for (const localSec of localSections) {
+            const titlePrefix = localSec.title.toLowerCase().substring(0, 25);
             const alreadyExists = existingTitles.some(t => t.includes(titlePrefix) || titlePrefix.includes(t));
             if (!alreadyExists) {
               sections.push({ ...localSec, id: `merged-${localSec.id}` });
@@ -252,12 +505,12 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
         }
       } catch (parseError) {
         console.warn('AI parse failed, using local fallback', parseError);
-        sections = parseSectionsLocal(text);
+        sections = localSections;
       }
 
       // Ensure at least some sections
       if (sections.length === 0) {
-        sections = parseSectionsLocal(text);
+        sections = localSections;
       }
 
       setData(prev => ({
@@ -321,14 +574,15 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   };
 
   const handleRefineSection = async (sectionId: string) => {
-    if (!data.selectedNewTitle) return;
+    const titleToUse = data.selectedNewTitle?.title || data.currentTitle;
+    if (!titleToUse) return;
     setProcessingSectionId(sectionId);
 
     const section = data.sections.find(s => s.id === sectionId);
     if (section && section.originalContent) {
       try {
         const refined = await geminiService.refineSectionContent(
-          section.title, section.originalContent, data.selectedNewTitle.title
+          section.title, section.originalContent, titleToUse
         );
         setData(prev => ({
           ...prev,
@@ -353,14 +607,15 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
 
   // --- Refine with reference documents ---
   const handleRefineSectionWithRefs = async (sectionId: string) => {
-    if (!data.selectedNewTitle) return;
+    const titleToUse = data.selectedNewTitle?.title || data.currentTitle;
+    if (!titleToUse) return;
     setProcessingSectionId(sectionId);
 
     const section = data.sections.find(s => s.id === sectionId);
     if (section && section.originalContent) {
       try {
         const refined = await geminiService.refineSectionWithReferences(
-          section.title, section.originalContent, data.selectedNewTitle.title, userRequirements
+          section.title, section.originalContent, titleToUse, userRequirements
         );
         setData(prev => ({
           ...prev,
@@ -381,7 +636,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   const handleFinish = async () => {
     try {
       // Create DOCX document
-      const docChildren: Paragraph[] = [];
+      const docChildren: (Paragraph | Table)[] = [];
 
       // Title
       docChildren.push(new Paragraph({
@@ -393,7 +648,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
         spacing: { after: 400 }
       }));
 
-      // Sections (respecting hierarchy)
+      // Sections (respecting hierarchy, with table support)
       data.sections.forEach(s => {
         const headingLevel = s.level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_1;
         const indent = s.level === 2 ? 360 : 0;
@@ -409,17 +664,8 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
         }));
 
         const content = s.refinedContent || s.originalContent;
-        const paragraphs = content.split('\n').filter(p => p.trim());
-        paragraphs.forEach(para => {
-          docChildren.push(new Paragraph({
-            children: [new TextRun({
-              text: para.trim(),
-              size: 26, font: 'Times New Roman'
-            })],
-            spacing: { after: 100 },
-            indent: { firstLine: 720, left: indent }
-          }));
-        });
+        const contentElements = parseContentToDocxElements(content, indent);
+        contentElements.forEach(el => docChildren.push(el));
       });
 
       const doc = new Document({
@@ -490,8 +736,8 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
                 <div
                   className="step-item"
                   onClick={() => handleStepClick(item.step)}
-                  style={{ cursor: item.step <= maxReachedStep ? 'pointer' : 'default' }}
-                  title={item.step <= maxReachedStep ? `Nhấn để quay lại: ${item.label}` : ''}
+                  style={{ cursor: (data.originalText || item.step <= maxReachedStep) ? 'pointer' : 'default' }}
+                  title={(data.originalText || item.step <= maxReachedStep) ? `Nhấn để chuyển tới: ${item.label}` : 'Cần tải lên SKKN trước'}
                 >
                   <div className={`step-circle ${currentStep > item.step ? 'completed' : currentStep === item.step ? 'active' : 'upcoming'
                     }`}>
