@@ -3,9 +3,10 @@ import { SectionContent, SectionSuggestion, SectionEditSuggestion, UserRequireme
 import { SUGGESTION_TYPES } from '../constants';
 import { Check, Loader2, RefreshCw, FileDown, Lightbulb, Sparkles, Eye, EyeOff, ChevronDown, ChevronUp, Download, Search, Plus, Minus, Pencil, Replace, CheckCircle2, Upload, ClipboardPaste, BookOpen, ArrowRight, FileText, Trash2, Settings2 } from 'lucide-react';
 import * as geminiService from '../services/geminiService';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } from 'docx';
 import { saveAs } from 'file-saver';
 import { ReferenceDocument } from '../types';
+import mammoth from 'mammoth';
 
 interface StepEditorProps {
   sections: SectionContent[];
@@ -124,14 +125,37 @@ const StepEditor: React.FC<StepEditorProps> = ({
     if (!file) return;
 
     try {
-      let content = await file.text();
-      if (content.includes('<?xml') || content.includes('<w:')) {
-        content = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      let content = '';
+      const ext = file.name.split('.').pop()?.toLowerCase();
+
+      if (ext === 'docx') {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        content = result.value;
+      } else if (ext === 'pdf') {
+        const pdfjsLib = await import('pdfjs-dist');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n\n';
+        }
+        content = fullText;
+      } else {
+        content = await file.text();
+        if (content.includes('<?xml') || content.includes('<w:')) {
+          content = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        }
       }
 
-      onUpdateSections(sections.map(s =>
-        s.id === sectionId ? { ...s, originalContent: content, editSuggestions: [] } : s
-      ));
+      if (content.trim()) {
+        onUpdateSections(sections.map(s =>
+          s.id === sectionId ? { ...s, originalContent: content.trim(), editSuggestions: [] } : s
+        ));
+      }
     } catch (err) {
       console.error('Error reading section file:', err);
     }
@@ -204,11 +228,11 @@ const StepEditor: React.FC<StepEditorProps> = ({
     });
   };
 
-  // --- Download single section as DOCX ---
+  // --- Download single section as DOCX (with table support) ---
   const handleDownloadSection = async (section: SectionContent) => {
     try {
       const content = section.refinedContent || section.originalContent;
-      const paragraphs: Paragraph[] = [];
+      const paragraphs: (Paragraph | Table)[] = [];
 
       paragraphs.push(new Paragraph({
         children: [new TextRun({ text: section.title, bold: true, size: 28, font: 'Times New Roman' })],
@@ -216,13 +240,57 @@ const StepEditor: React.FC<StepEditorProps> = ({
         spacing: { after: 200 }
       }));
 
-      content.split('\n').filter(p => p.trim()).forEach(para => {
-        paragraphs.push(new Paragraph({
-          children: [new TextRun({ text: para.trim(), size: 26, font: 'Times New Roman' })],
-          spacing: { after: 100 },
-          indent: { firstLine: 720 }
-        }));
-      });
+      // Parse content with table support
+      const lines = content.split('\n');
+      let li = 0;
+      while (li < lines.length) {
+        const line = lines[li];
+
+        // Detect markdown table
+        if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+          const tableLines: string[] = [];
+          while (li < lines.length && lines[li].trim().startsWith('|') && lines[li].trim().endsWith('|')) {
+            tableLines.push(lines[li].trim());
+            li++;
+          }
+          if (tableLines.length >= 2) {
+            const headerCells = tableLines[0].split('|').filter(c => c.trim() !== '');
+            const colCount = headerCells.length;
+            const dataRows: string[][] = [];
+            for (const tl of tableLines) {
+              if (/^[\s|:\-]+$/.test(tl.replace(/\|/g, ' '))) continue;
+              dataRows.push(tl.split('|').filter(c => c.trim() !== '').map(c => c.trim()));
+            }
+            if (dataRows.length > 0) {
+              const bs = { style: BorderStyle.SINGLE, size: 1, color: '000000' };
+              const borders = { top: bs, bottom: bs, left: bs, right: bs, insideHorizontal: bs, insideVertical: bs };
+              const tableRows = dataRows.map((cells, ri) => new TableRow({
+                children: Array.from({ length: colCount }, (_, ci) => new TableCell({
+                  children: [new Paragraph({
+                    children: [new TextRun({ text: cells[ci] || '', bold: ri === 0, size: 24, font: 'Times New Roman' })],
+                    spacing: { before: 40, after: 40 },
+                    alignment: AlignmentType.CENTER
+                  })],
+                  width: { size: Math.floor(9000 / colCount), type: WidthType.DXA },
+                  borders
+                }))
+              }));
+              paragraphs.push(new Table({ rows: tableRows, width: { size: 9000, type: WidthType.DXA } }));
+              paragraphs.push(new Paragraph({ spacing: { after: 100 } }));
+            }
+          }
+          continue;
+        }
+
+        if (line.trim()) {
+          paragraphs.push(new Paragraph({
+            children: [new TextRun({ text: line.trim(), size: 26, font: 'Times New Roman' })],
+            spacing: { after: 100 },
+            indent: { firstLine: 720 }
+          }));
+        }
+        li++;
+      }
 
       const doc = new Document({ sections: [{ children: paragraphs }] });
       const blob = await Packer.toBlob(doc);
