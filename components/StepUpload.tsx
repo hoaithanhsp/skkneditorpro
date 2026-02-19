@@ -90,21 +90,57 @@ const StepUpload: React.FC<StepUploadProps> = ({ onUpload, isProcessing, progres
 
   if (isProcessing) {
     const pct = Math.min(progress, 100);
+    const circumference = 2 * Math.PI * 42;
     return (
       <div className="animate-fade-in" style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         minHeight: '60vh', gap: 16
       }}>
-        {/* Circular progress */}
+        {/* Spinner keyframes */}
+        <style>{`
+          @keyframes spin-outer { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+          @keyframes spin-reverse { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+          @keyframes pulse-glow { 0%, 100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 0.8; transform: scale(1.05); } }
+          @keyframes pulse-dot { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+        `}</style>
+
+        {/* Circular progress with spinning rings */}
         <div style={{
-          position: 'relative', width: 100, height: 100,
+          position: 'relative', width: 140, height: 140,
           display: 'flex', alignItems: 'center', justifyContent: 'center'
         }}>
-          <svg width="100" height="100" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)' }}>
+          {/* Outer spinning ring */}
+          <div style={{
+            position: 'absolute', width: 140, height: 140,
+            borderRadius: '50%',
+            border: '2px dashed #14b8a633',
+            animation: 'spin-outer 4s linear infinite'
+          }} />
+
+          {/* Second spinning ring (reverse) */}
+          <div style={{
+            position: 'absolute', width: 126, height: 126,
+            borderRadius: '50%',
+            border: '1.5px solid transparent',
+            borderTopColor: '#14b8a6',
+            borderRightColor: '#14b8a644',
+            animation: 'spin-outer 2s linear infinite'
+          }} />
+
+          {/* Glow effect */}
+          <div style={{
+            position: 'absolute', width: 110, height: 110,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(20,184,166,0.08) 0%, transparent 70%)',
+            animation: 'pulse-glow 2s ease-in-out infinite'
+          }} />
+
+          {/* Main progress circle */}
+          <svg width="100" height="100" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)', position: 'relative', zIndex: 1 }}>
             <circle cx="50" cy="50" r="42" fill="none" stroke="#e2e8f0" strokeWidth="6" />
             <circle cx="50" cy="50" r="42" fill="none" stroke="url(#progressGrad)" strokeWidth="6"
-              strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 42}`}
-              strokeDashoffset={`${2 * Math.PI * 42 * (1 - pct / 100)}`}
+              strokeLinecap="round" strokeDasharray={`${circumference}`}
+              strokeDashoffset={`${circumference * (1 - pct / 100)}`}
               style={{ transition: 'stroke-dashoffset 0.6s ease' }}
             />
             <defs>
@@ -114,18 +150,35 @@ const StepUpload: React.FC<StepUploadProps> = ({ onUpload, isProcessing, progres
               </linearGradient>
             </defs>
           </svg>
+
+          {/* Percentage text */}
           <span style={{
             position: 'absolute', fontSize: 22, fontWeight: 800, color: '#0d9488',
-            fontVariantNumeric: 'tabular-nums'
+            fontVariantNumeric: 'tabular-nums', zIndex: 2
           }}>
             {pct}%
           </span>
+
+          {/* Orbiting dots */}
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{
+              position: 'absolute', width: 6, height: 6,
+              borderRadius: '50%', background: '#14b8a6',
+              animation: `pulse-dot 1.5s ease-in-out ${i * 0.5}s infinite`,
+              top: i === 0 ? -2 : i === 1 ? '50%' : undefined,
+              bottom: i === 2 ? -2 : undefined,
+              left: i === 1 ? -2 : i === 0 ? '50%' : undefined,
+              right: i === 2 ? '30%' : undefined,
+              transform: i === 1 ? 'translateY(-50%)' : i === 0 ? 'translateX(-50%)' : undefined,
+            }} />
+          ))}
         </div>
 
         <h3 style={{ fontSize: 20, fontWeight: 700, color: '#134e4a', margin: 0 }}>
           Đang phân tích tài liệu...
         </h3>
-        <p style={{ color: '#0d9488', fontSize: 14, fontWeight: 600, margin: 0 }}>
+        <p style={{ color: '#0d9488', fontSize: 14, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Loader2 size={16} style={{ animation: 'spin-outer 1s linear infinite' }} />
           {stage || 'Đang xử lý...'}
         </p>
         <div className="progress-bar" style={{ width: 280, marginTop: 4 }}>
