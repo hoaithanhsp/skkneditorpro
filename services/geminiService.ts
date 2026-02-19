@@ -38,13 +38,26 @@ const getModelChain = (): string[] => {
   return [selected, ...allModels.filter(m => m !== selected)];
 };
 
-const callWithFallback = async (fn: (model: string) => Promise<any>): Promise<any> => {
+// --- Timeout wrapper ---
+const withTimeout = <T>(promise: Promise<T>, ms: number, label: string = 'API call'): Promise<T> => {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms / 1000}s`));
+    }, ms);
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+};
+
+const callWithFallback = async (fn: (model: string) => Promise<any>, timeoutMs: number = 90000): Promise<any> => {
   const chain = getModelChain();
   let lastError: any = null;
 
   for (const model of chain) {
     try {
-      return await fn(model);
+      return await withTimeout(fn(model), timeoutMs, `Model ${model}`);
     } catch (error: any) {
       lastError = error;
       console.warn(`Model ${model} failed, trying next...`, error.message);
@@ -153,58 +166,30 @@ ${truncated}
 };
 
 // --- Parse SKKN Structure (AI-powered, multi-level) ---
+// CHỈ yêu cầu AI trả về CẤU TRÚC (id, title, level, parentId) — KHÔNG trả content
+// Content sẽ được gán từ local parser dựa trên vị trí heading
 export const parseStructure = async (text: string): Promise<{ id: string, title: string, level: number, parentId: string, content: string }[]> => {
   const ai = getAI();
-  // Gửi tối đa 80K ký tự — đủ cho SKKN 60+ trang
-  const truncated = text.substring(0, 80000);
+  // Giảm xuống 25K ký tự vì không cần AI đọc toàn bộ content, chỉ cần nhận diện heading
+  const truncated = text.substring(0, 25000);
 
   const prompt = `
-    Bạn là chuyên gia phân tích cấu trúc Sáng kiến Kinh nghiệm (SKKN) Việt Nam.
+    Chuyên gia phân tích cấu trúc SKKN Việt Nam.
     
-    NHIỆM VỤ: Phân tích văn bản SKKN bên dưới và TÁCH RA thành CẤU TRÚC ĐA CẤP ĐẦY ĐỦ.
+    NHIỆM VỤ: Liệt kê TẤT CẢ tiêu đề mục/phần trong văn bản, CHỈ CẦN tiêu đề và cấp bậc.
+    KHÔNG CẦN trả nội dung (content để rỗng "").
     
-    VÍ DỤ OUTPUT MONG ĐỢI (SKKN điển hình):
-    [
-      {"id":"s1","title":"MỤC LỤC","level":1,"parentId":"","content":"..."},
-      {"id":"s2","title":"PHẦN I. ĐẶT VẤN ĐỀ","level":1,"parentId":"","content":"..."},
-      {"id":"s3","title":"PHẦN II. NỘI DUNG","level":1,"parentId":"","content":""},
-      {"id":"s3-1","title":"1. Cơ sở lý luận","level":2,"parentId":"s3","content":"..."},
-      {"id":"s3-2","title":"2. Thực trạng vấn đề","level":2,"parentId":"s3","content":"..."},
-      {"id":"s3-3","title":"3. Các giải pháp","level":2,"parentId":"s3","content":""},
-      {"id":"s3-3-1","title":"Giải pháp 1: ...","level":3,"parentId":"s3-3","content":"..."},
-      {"id":"s3-3-2","title":"Giải pháp 2: ...","level":3,"parentId":"s3-3","content":"..."},
-      {"id":"s3-3-3","title":"Giải pháp 3: ...","level":3,"parentId":"s3-3","content":"..."},
-      {"id":"s3-4","title":"4. Kết quả đạt được","level":2,"parentId":"s3","content":"..."},
-      {"id":"s4","title":"PHẦN III. KẾT LUẬN VÀ KIẾN NGHỊ","level":1,"parentId":"","content":"..."},
-      {"id":"s5","title":"TÀI LIỆU THAM KHẢO","level":1,"parentId":"","content":"..."},
-      {"id":"s6","title":"PHỤ LỤC","level":1,"parentId":"","content":"..."}
-    ]
+    QUY TẮC:
+    - Level 1: Phần I, II, III, CHƯƠNG, MỤC LỤC, TÀI LIỆU THAM KHẢO, PHỤ LỤC
+    - Level 2: 1., 2., 3., 4.1, 4.2
+    - Level 3: 1.1., "Giải pháp 1", "Biện pháp 1", "Bước 1"
+    - "Giải pháp/Biện pháp/Bước 1/2/3" → LUÔN tách thành mục con riêng
+    - id unique: "s1", "s2", "s2-1", "s2-1-1"...
+    - parentId = "" nếu level 1
+    - title = tiêu đề CHÍNH XÁC từ văn bản gốc
+    - content = "" (để rỗng tất cả)
     
-    QUY TẮC PHÂN TÍCH — ĐẦY ĐỦ VÀ CHÍNH XÁC:
-    1. Tìm TẤT CẢ mục ở MỌI CẤP ĐỘ:
-       - Level 1: Phần I, II, III... hoặc CHƯƠNG 1, MỤC LỤC, TÀI LIỆU THAM KHẢO, PHỤ LỤC...
-       - Level 2: 1., 2., 3. hoặc 4.1, 4.2...
-       - Level 3: 1.1., 2.1., 4.2.1, "Giải pháp 1", "Biện pháp 1", "Bước 1"...
-       - Level 4+: a), b), (i), (ii)... nếu có
-    2. PHẢI ĐI SÂU TẬN CÙNG — tách từng giải pháp/biện pháp/bước thành mục riêng.
-    3. ĐẶC BIỆT QUAN TRỌNG: 
-       - "Giải pháp 1/2/3/4/5", "Biện pháp 1/2/3/4/5", "Bước 1/2/3..." → LUÔN tách thành mục con
-       - Mỗi giải pháp/biện pháp phải có NỘI DUNG ĐẦY ĐỦ trong trường "content"
-    4. QUY TẮC VỀ CONTENT:
-       - Mục LÁ (không có mục con): "content" = TOÀN BỘ nội dung. BẮT BUỘC PHẢI CÓ.
-       - Mục CHA (có mục con): "content" = phần giới thiệu trước mục con đầu tiên hoặc "".
-    5. Trường "id" phải unique: "s1", "s2", "s2-1", "s2-1-1"...
-    6. "parentId": = "" nếu level 1, = id cha trực tiếp nếu level 2+
-    7. "title" = tiêu đề CHÍNH XÁC như trong văn bản gốc
-    8. TUYỆT ĐỐI KHÔNG bỏ sót. Đọc TỪ ĐẦU ĐẾN CUỐI văn bản.
-    9. PHẢI bao gồm: Mục lục, Đặt vấn đề, Nội dung, Kết luận, Tài liệu tham khảo, Phụ lục, Cam kết (nếu có).
-    
-    ⚠️ KIỂM TRA CUỐI: 
-    - SKKN tiêu chuẩn có 10-30+ mục tổng cộng (bao gồm mục con).
-    - Nếu chỉ tìm được <= 5 mục → BẠN ĐÃ BỎ SÓT, phải rà soát lại TOÀN BỘ văn bản.
-    - Đếm lại số level-1: thường >= 3 phần chính.
-    
-    VĂN BẢN SKKN:
+    VĂN BẢN:
     """
     ${truncated}
     """
@@ -216,6 +201,7 @@ export const parseStructure = async (text: string): Promise<{ id: string, title:
       contents: prompt,
       config: {
         temperature: 0,
+        maxOutputTokens: 4096,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -224,9 +210,9 @@ export const parseStructure = async (text: string): Promise<{ id: string, title:
             properties: {
               id: { type: Type.STRING },
               title: { type: Type.STRING },
-              level: { type: Type.INTEGER, description: "1=cấp cao nhất, 2=mục con, 3=mục cháu, 4+..." },
+              level: { type: Type.INTEGER, description: "1=cấp cao nhất, 2=mục con, 3=mục cháu" },
               parentId: { type: Type.STRING, description: "Empty string for level 1, parent id otherwise" },
-              content: { type: Type.STRING, description: "Nội dung văn bản thuộc mục này. BẮT BUỘC có cho mục lá." }
+              content: { type: Type.STRING, description: "Để rỗng" }
             }
           }
         }
@@ -234,7 +220,7 @@ export const parseStructure = async (text: string): Promise<{ id: string, title:
     });
     if (!response.text) throw new Error("No response from AI");
     return JSON.parse(response.text);
-  });
+  }, 60000); // timeout 60s cho parseStructure
 };
 
 // --- Title Suggestions ---
