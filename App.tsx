@@ -350,6 +350,8 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     sections: []
   });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisStage, setAnalysisStage] = useState('');
   const [processingSectionId, setProcessingSectionId] = useState<string | null>(null);
   const [showApiModal, setShowApiModal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -415,9 +417,21 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   // --- Auto-save to history ---
   const autoSave = useCallback(() => {
     if (data.originalText && data.fileName) {
-      historyService.saveSession(data, maxReachedStep);
+      // Truncate originalText to save localStorage space (keep first 2000 chars for preview)
+      const trimmedData = {
+        ...data,
+        originalText: data.originalText.substring(0, 2000)
+      };
+      historyService.saveSession(trimmedData, maxReachedStep);
     }
   }, [data, maxReachedStep]);
+
+  // --- Periodic auto-save every 30s ---
+  useEffect(() => {
+    if (!data.originalText || !data.fileName) return;
+    const interval = setInterval(autoSave, 30000);
+    return () => clearInterval(interval);
+  }, [autoSave, data.originalText, data.fileName]);
 
   // --- Load from history ---
   const handleLoadSession = (entry: HistoryEntry) => {
@@ -434,13 +448,20 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
       return;
     }
     setIsProcessing(true);
+    setAnalysisProgress(5);
+    setAnalysisStage('Đang đọc văn bản...');
     try {
       // Step 1: AI analysis
+      setAnalysisProgress(10);
+      setAnalysisStage('AI đang phân tích chất lượng...');
       const result = await geminiService.analyzeSKKN(text);
 
       // Step 2: AI structure parsing (flexible)
       let sections: SectionContent[] = [];
       const localSections = parseSectionsLocal(text); // Always compute local parse for validation
+
+      setAnalysisProgress(45);
+      setAnalysisStage('AI đang tách cấu trúc mục...');
 
       try {
         const parsed = await geminiService.parseStructure(text);
@@ -513,6 +534,9 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
         sections = localSections;
       }
 
+      setAnalysisProgress(90);
+      setAnalysisStage('Đang lưu kết quả...');
+
       setData(prev => ({
         ...prev,
         fileName,
@@ -522,6 +546,8 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
         sections
       }));
       goToStep(AppStep.ANALYZING);
+      setAnalysisProgress(100);
+      setAnalysisStage('Hoàn tất!');
       addToast('success', `Phân tích hoàn tất! Tìm thấy ${sections.length} mục/mục con.`);
 
       // Auto-save
@@ -544,6 +570,8 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
       }
     } finally {
       setIsProcessing(false);
+      setAnalysisProgress(0);
+      setAnalysisStage('');
     }
   };
 
@@ -810,7 +838,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
 
         {!showShortenMode && currentStep === AppStep.UPLOAD && (
           <>
-            <StepUpload onUpload={handleUpload} isProcessing={isProcessing} />
+            <StepUpload onUpload={handleUpload} isProcessing={isProcessing} progress={analysisProgress} stage={analysisStage} />
             {!isProcessing && (
               <div style={{
                 display: 'flex', justifyContent: 'center', marginTop: 12
@@ -879,6 +907,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
             onUpdateSections={handleUpdateSections}
             userRequirements={userRequirements}
             onUpdateRequirements={setUserRequirements}
+            addToast={addToast}
           />
         )}
       </main>

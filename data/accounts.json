@@ -1,40 +1,17 @@
 [
-    {"username": "admin","password": "123","displayName": "Quản trị viên"},
-    {"username": "lebaochau18042005@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "ducanhhagi45@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "nguyenthom8686p@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "duongle2512@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "aubinhdinh2023@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "Anhnguyet166@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "mcuongvt82@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "nguyenphuongnhi1807@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "nguyenquangloc.td@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "maria.doantrang@gmail.com","password": "SKKN100","displayName": "Giáo viên"},
-    {"username": "quachlong220666@gmail.com","password": "SKKN100","displayName": "GV"},
-    {"username": "chutrinhtayninh@gmail.com","password": "SKKN100","displayName": "Chu Lan Trinh"},
-    {"username": "Xhuong91@gmail.com","password": "SKKN100","displayName": "Nguyễn Thị Xuân Hương"},
-    {"username": "Hoangha220488@gmail.com","password": "SKKN100","displayName": "Hoàng Thị Hà"},
-    {"username": "huonggiangpc89@gmail.com","password": "SKKN100","displayName": "Nguyễn Hương Giang"},
-    {"username": "lethanhxuantukiet@gmail.com","password": "SKKN100","displayName": "Lê Thanh Xuân"},
-    {"username": "Buihuusonkx@gmail.com","password": "SKKN100","displayName": "Bùi Thị Kiên"},
-    {"username": "gv01","password": "12345","displayName": "Trần Hoài Thanh"}
+    {
+        "username": "admin",
+        "password": "123",
+        "displayName": "Quản trị viên"
+    },
+    {
+        "username": "admin1",
+        "password": "SKKN100",
+        "displayName": "GV"
+    },
+    {
+        "username": "gv01",
+        "password": "12345",
+        "displayName": "Nguyễn Văn A"
+    }
 ]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

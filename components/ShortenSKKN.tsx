@@ -1,7 +1,7 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { Upload, Scissors, FileDown, Loader2, AlertCircle, X, FileText, ArrowLeft } from 'lucide-react';
 import mammoth from 'mammoth';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } from 'docx';
 import { saveAs } from 'file-saver';
 import * as geminiService from '../services/geminiService';
 
@@ -113,48 +113,81 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
         }
     };
 
-    // --- Export DOCX ---
+    // --- Export DOCX (with table support) ---
     const handleExportDocx = async () => {
         if (!result) return;
         try {
             const lines = result.split('\n');
-            const docChildren: Paragraph[] = [];
+            const docChildren: (Paragraph | Table)[] = [];
+            let li = 0;
 
-            for (const line of lines) {
+            while (li < lines.length) {
+                const line = lines[li];
                 const trimmed = line.trim();
-                if (!trimmed) continue;
+
+                if (!trimmed) { li++; continue; }
+
+                // Detect markdown table
+                if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+                    const tableLines: string[] = [];
+                    while (li < lines.length && lines[li].trim().startsWith('|') && lines[li].trim().endsWith('|')) {
+                        tableLines.push(lines[li].trim());
+                        li++;
+                    }
+                    if (tableLines.length >= 2) {
+                        const headerCells = tableLines[0].split('|').filter(c => c.trim() !== '');
+                        const colCount = headerCells.length;
+                        const dataRows: string[][] = [];
+                        for (const tl of tableLines) {
+                            if (/^[\s|:\-]+$/.test(tl.replace(/\|/g, ' '))) continue;
+                            dataRows.push(tl.split('|').filter(c => c.trim() !== '').map(c => c.trim()));
+                        }
+                        if (dataRows.length > 0) {
+                            const bs = { style: BorderStyle.SINGLE, size: 1, color: '000000' };
+                            const borders = { top: bs, bottom: bs, left: bs, right: bs, insideHorizontal: bs, insideVertical: bs };
+                            const tableRows = dataRows.map((cells, ri) => new TableRow({
+                                children: Array.from({ length: colCount }, (_, ci) => new TableCell({
+                                    children: [new Paragraph({
+                                        children: [new TextRun({ text: cells[ci] || '', bold: ri === 0, size: 24, font: 'Times New Roman' })],
+                                        spacing: { before: 40, after: 40 },
+                                        alignment: AlignmentType.CENTER
+                                    })],
+                                    width: { size: Math.floor(9000 / colCount), type: WidthType.DXA },
+                                    borders
+                                }))
+                            }));
+                            docChildren.push(new Table({ rows: tableRows, width: { size: 9000, type: WidthType.DXA } }));
+                            docChildren.push(new Paragraph({ spacing: { after: 100 } }));
+                        }
+                    }
+                    continue;
+                }
 
                 // Detect heading patterns
                 const isHeading1 = /^(#+\s|PHẦN\s+[IVXLC]+|CHƯƠNG\s+\d)/i.test(trimmed);
                 const isHeading2 = /^(##\s|\d+\.\s|[a-z]\))/i.test(trimmed);
-
                 const cleanText = trimmed.replace(/^#+\s*/, '');
 
                 if (isHeading1) {
                     docChildren.push(new Paragraph({
-                        children: [new TextRun({
-                            text: cleanText, bold: true, size: 26, font: 'Times New Roman'
-                        })],
+                        children: [new TextRun({ text: cleanText, bold: true, size: 26, font: 'Times New Roman' })],
                         heading: HeadingLevel.HEADING_1,
                         spacing: { before: 400, after: 200 }
                     }));
                 } else if (isHeading2) {
                     docChildren.push(new Paragraph({
-                        children: [new TextRun({
-                            text: cleanText, bold: true, size: 24, font: 'Times New Roman'
-                        })],
+                        children: [new TextRun({ text: cleanText, bold: true, size: 24, font: 'Times New Roman' })],
                         heading: HeadingLevel.HEADING_2,
                         spacing: { before: 200, after: 100 }
                     }));
                 } else {
                     docChildren.push(new Paragraph({
-                        children: [new TextRun({
-                            text: cleanText, size: 26, font: 'Times New Roman'
-                        })],
+                        children: [new TextRun({ text: cleanText, size: 26, font: 'Times New Roman' })],
                         spacing: { after: 100 },
                         indent: { firstLine: 720 }
                     }));
                 }
+                li++;
             }
 
             const doc = new Document({ sections: [{ children: docChildren }] });
@@ -163,7 +196,6 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
             saveAs(blob, outName);
         } catch (err) {
             console.error('Export error:', err);
-            // Fallback to txt
             const blob = new Blob([result], { type: 'text/plain;charset=utf-8' });
             saveAs(blob, `SKKN_RutNgan_${targetPages}trang.txt`);
         }

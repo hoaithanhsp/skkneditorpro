@@ -67,39 +67,20 @@ export const analyzeSKKN = async (text: string): Promise<{ analysis: AnalysisMet
 
   const clicheList = CLICHE_PHRASES.slice(0, 12).map(c => `"${c}"`).join(', ');
 
-  const prompt = `
-    Bạn là chuyên gia thẩm định Sáng kiến Kinh nghiệm (SKKN) cấp Bộ với 20 năm kinh nghiệm. Hãy phân tích CHUYÊN SÂU văn bản SKKN sau.
-    
-    TIÊU CHÍ CHẤM SKKN (theo Nghị định 13/2012/NĐ-CP):
-${scoringContext}
-    
-    NHIỆM VỤ CHI TIẾT:
-    1. Xác định tên đề tài hiện tại (trích chính xác từ văn bản).
-    2. Phân tích cấu trúc: kiểm tra đủ 6 phần chính (I→VI) và các mục con.
-    3. Đánh giá chất lượng theo thang điểm 100 dựa trên 10 tiêu chí:
-       - Tính mới / Sáng tạo (trọng số cao nhất — đề tài có gì KHÁC BIỆT?)
-       - Cấu trúc logic (Lý luận → Thực trạng → Giải pháp → Kết quả có mạch lạc?)
-       - Cơ sở lý luận (có viện dẫn tác giả, lý thuyết cụ thể? Vygotsky, Bloom, Piaget...)
-       - Số liệu / Minh chứng (có bảng biểu, biểu đồ, số liệu trước/sau?)
-       - Tính khả thi (có thể áp dụng ở trường khác không?)
-       - Phương pháp nghiên cứu (có nhóm đối chứng/thực nghiệm? Kiểm định thống kê?)
-       - Ngôn ngữ khoa học (có dùng thuật ngữ chuyên ngành? Tránh câu sáo rỗng?)
-       - Tính thực tiễn (giải quyết vấn đề cụ thể nào?)
-       - Khả năng nhân rộng (mô hình có thể triển khai rộng?)
-       - Hình thức trình bày (format, bảng biểu, tài liệu tham khảo)
-    
-    ⚠️ BẮT BUỘC: Với MỖI tiêu chí trong qualityCriteria:
-       - "score" phải từ 1-10, ĐÚNG thực tế văn bản (không phải luôn cho điểm thấp)
-       - "comment" phải viết NHẬN XÉT CỤ THỂ ít nhất 30 ký tự, giải thích TẠI SAO cho điểm đó
-       - KHÔNG ĐƯỢC BỎ TRỐNG comment. Nếu điểm thấp, PHẢI giải thích thiếu gì
-       - Ví dụ comment tốt: "Ứng dụng AI Gemini vào dạy học là ý tưởng rất mới, chưa phổ biến trong SKKN hiện tại"
-       - Ví dụ comment XẤU (KHÔNG CHẤP NHẬN): "" hoặc "Tốt" hoặc "Chưa tốt"
+  const prompt = `Chuyên gia SKKN cấp Bộ. Phân tích văn bản:
 
-    4. Ước tỷ lệ đạo văn — kiểm tra câu sáo rỗng phổ biến: ${clicheList}
-    5. Đánh giá chi tiết từng phần (sectionFeedback): cho mỗi phần đánh giá status (good/needs_work/missing), tóm tắt, và 2-3 gợi ý CỤ THỂ (không chung chung).
-    
-    Văn bản SKKN:
-    ${truncated}
+TIÊU CHÍ (NĐ 13/2012):
+${scoringContext}
+
+NHIỆM VỤ:
+1. Trích tên đề tài chính xác.
+2. Kiểm tra cấu trúc 6 phần: Đặt vấn đề, Lý luận, Thực trạng, Giải pháp, Kết quả, Kết luận.
+3. Chấm 10 tiêu chí (1-10đ): Tính mới, Cấu trúc, Lý luận, Số liệu, Khả thi, PPNC, Ngôn ngữ, Thực tiễn, Nhân rộng, Hình thức. Comment ≥30 ký tự.
+4. Ước đạo văn — kiểm tra sáo rỗng: ${clicheList}
+5. Đánh giá từng phần: status (good/needs_work/missing), tóm tắt, 2-3 gợi ý cụ thể.
+
+Văn bản:
+${truncated}
   `;
 
   return callWithFallback(async (model) => {
@@ -108,6 +89,7 @@ ${scoringContext}
       contents: prompt,
       config: {
         temperature: 0,
+        maxOutputTokens: 4096,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -173,44 +155,54 @@ ${scoringContext}
 // --- Parse SKKN Structure (AI-powered, multi-level) ---
 export const parseStructure = async (text: string): Promise<{ id: string, title: string, level: number, parentId: string, content: string }[]> => {
   const ai = getAI();
-  // Gửi tối đa 50K ký tự — đủ cho SKKN 50+ trang
-  const truncated = text.substring(0, 50000);
+  // Gửi tối đa 80K ký tự — đủ cho SKKN 60+ trang
+  const truncated = text.substring(0, 80000);
 
   const prompt = `
     Bạn là chuyên gia phân tích cấu trúc Sáng kiến Kinh nghiệm (SKKN) Việt Nam.
     
-    NHIỆM VỤ: Phân tích văn bản SKKN bên dưới và TÁCH RA thành các mục ĐA CẤP (không giới hạn số cấp).
+    NHIỆM VỤ: Phân tích văn bản SKKN bên dưới và TÁCH RA thành CẤU TRÚC ĐA CẤP ĐẦY ĐỦ.
     
-    QUY TẮC PHÂN TÍCH — TRUY XUẤT TẬN CÙNG:
+    VÍ DỤ OUTPUT MONG ĐỢI (SKKN điển hình):
+    [
+      {"id":"s1","title":"MỤC LỤC","level":1,"parentId":"","content":"..."},
+      {"id":"s2","title":"PHẦN I. ĐẶT VẤN ĐỀ","level":1,"parentId":"","content":"..."},
+      {"id":"s3","title":"PHẦN II. NỘI DUNG","level":1,"parentId":"","content":""},
+      {"id":"s3-1","title":"1. Cơ sở lý luận","level":2,"parentId":"s3","content":"..."},
+      {"id":"s3-2","title":"2. Thực trạng vấn đề","level":2,"parentId":"s3","content":"..."},
+      {"id":"s3-3","title":"3. Các giải pháp","level":2,"parentId":"s3","content":""},
+      {"id":"s3-3-1","title":"Giải pháp 1: ...","level":3,"parentId":"s3-3","content":"..."},
+      {"id":"s3-3-2","title":"Giải pháp 2: ...","level":3,"parentId":"s3-3","content":"..."},
+      {"id":"s3-3-3","title":"Giải pháp 3: ...","level":3,"parentId":"s3-3","content":"..."},
+      {"id":"s3-4","title":"4. Kết quả đạt được","level":2,"parentId":"s3","content":"..."},
+      {"id":"s4","title":"PHẦN III. KẾT LUẬN VÀ KIẾN NGHỊ","level":1,"parentId":"","content":"..."},
+      {"id":"s5","title":"TÀI LIỆU THAM KHẢO","level":1,"parentId":"","content":"..."},
+      {"id":"s6","title":"PHỤ LỤC","level":1,"parentId":"","content":"..."}
+    ]
+    
+    QUY TẮC PHÂN TÍCH — ĐẦY ĐỦ VÀ CHÍNH XÁC:
     1. Tìm TẤT CẢ mục ở MỌI CẤP ĐỘ:
-       - Level 1: Phần I, II, III... hoặc CHƯƠNG 1, A., B...
-       - Level 2: 1., 2., 3. hoặc 4.1, 4.2, "a)", "b)"...
-       - Level 3: 1.1., 2.1., 4.2.1, "Giải pháp 1", "Biện pháp 1"...
+       - Level 1: Phần I, II, III... hoặc CHƯƠNG 1, MỤC LỤC, TÀI LIỆU THAM KHẢO, PHỤ LỤC...
+       - Level 2: 1., 2., 3. hoặc 4.1, 4.2...
+       - Level 3: 1.1., 2.1., 4.2.1, "Giải pháp 1", "Biện pháp 1", "Bước 1"...
        - Level 4+: a), b), (i), (ii)... nếu có
-    2. PHẢI ĐI SÂU TẬN CÙNG — nếu mục 4.2 có chứa "4.2.1 Giải pháp 1", "4.2.2 Giải pháp 2"... 
-       thì PHẢI tách từng giải pháp thành mục riêng biệt với nội dung đầy đủ.
+    2. PHẢI ĐI SÂU TẬN CÙNG — tách từng giải pháp/biện pháp/bước thành mục riêng.
     3. ĐẶC BIỆT QUAN TRỌNG: 
-       - "Giải pháp 1/2/3/4/5", "Biện pháp 1/2/3/4/5" → LUÔN tách thành mục con riêng biệt
+       - "Giải pháp 1/2/3/4/5", "Biện pháp 1/2/3/4/5", "Bước 1/2/3..." → LUÔN tách thành mục con
        - Mỗi giải pháp/biện pháp phải có NỘI DUNG ĐẦY ĐỦ trong trường "content"
     4. QUY TẮC VỀ CONTENT:
-       - Mục LÁ (không có mục con bên dưới): trường "content" = TOÀN BỘ nội dung văn bản thuộc mục đó. BẮT BUỘC PHẢI CÓ.
-       - Mục CHA (có mục con): trường "content" = phần giới thiệu/dẫn dắt trước mục con đầu tiên (nếu có), hoặc "" nếu không có.
-       - KHÔNG BAO GIỜ để trường "content" rỗng cho mục lá.
-    5. Trường "id" phải unique, dạng: "s1", "s2", "s2-1", "s2-1-1", "s2-1-2"...
-    6. Trường "parentId": 
-       - = "" nếu là mục cấp cao nhất (level 1)
-       - = id của mục cha trực tiếp nếu là mục con
-    7. "title" = tên/tiêu đề CHÍNH XÁC như trong văn bản gốc
-    8. "level" = cấp độ: 1, 2, 3, 4...
-    9. TUYỆT ĐỐI KHÔNG bỏ sót nội dung. Mỗi đoạn văn trong SKKN phải thuộc về ít nhất 1 mục.
-    10. PHẢI RÀ SOÁT ĐẾN HẾT VĂN BẢN — bao gồm cả các phần cuối cùng như:
-        - Kết luận / Kiến nghị
-        - Tài liệu tham khảo
-        - Phụ lục
-        - Cam kết / Lời cam đoan
-        Nếu văn bản có các phần này thì BẮT BUỘC phải liệt kê.
-    11. Kiểm tra lại: đếm số phần level 1 tìm được. Nếu SKKN thường có 5-7 phần chính
-        mà chỉ tìm được <= 4 phần → RÀ SOÁT LẠI TOÀN BỘ văn bản vì CÓ THỂ bỏ sót.
+       - Mục LÁ (không có mục con): "content" = TOÀN BỘ nội dung. BẮT BUỘC PHẢI CÓ.
+       - Mục CHA (có mục con): "content" = phần giới thiệu trước mục con đầu tiên hoặc "".
+    5. Trường "id" phải unique: "s1", "s2", "s2-1", "s2-1-1"...
+    6. "parentId": = "" nếu level 1, = id cha trực tiếp nếu level 2+
+    7. "title" = tiêu đề CHÍNH XÁC như trong văn bản gốc
+    8. TUYỆT ĐỐI KHÔNG bỏ sót. Đọc TỪ ĐẦU ĐẾN CUỐI văn bản.
+    9. PHẢI bao gồm: Mục lục, Đặt vấn đề, Nội dung, Kết luận, Tài liệu tham khảo, Phụ lục, Cam kết (nếu có).
+    
+    ⚠️ KIỂM TRA CUỐI: 
+    - SKKN tiêu chuẩn có 10-30+ mục tổng cộng (bao gồm mục con).
+    - Nếu chỉ tìm được <= 5 mục → BẠN ĐÃ BỎ SÓT, phải rà soát lại TOÀN BỘ văn bản.
+    - Đếm lại số level-1: thường >= 3 phần chính.
     
     VĂN BẢN SKKN:
     """
@@ -223,6 +215,7 @@ export const parseStructure = async (text: string): Promise<{ id: string, title:
       model,
       contents: prompt,
       config: {
+        temperature: 0,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,

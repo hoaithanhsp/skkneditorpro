@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { SectionContent, SectionSuggestion, SectionEditSuggestion, UserRequirements } from '../types';
 import { SUGGESTION_TYPES } from '../constants';
-import { Check, Loader2, RefreshCw, FileDown, Lightbulb, Sparkles, Eye, EyeOff, ChevronDown, ChevronUp, Download, Search, Plus, Minus, Pencil, Replace, CheckCircle2, Upload, ClipboardPaste, BookOpen, ArrowRight, FileText, Trash2, Settings2 } from 'lucide-react';
+import { Check, Loader2, RefreshCw, FileDown, Lightbulb, Sparkles, Eye, EyeOff, ChevronDown, ChevronUp, Download, Search, Plus, Minus, Pencil, Replace, CheckCircle2, Upload, ClipboardPaste, BookOpen, ArrowRight, FileText, Trash2, Settings2, Zap, GitCompareArrows, Square } from 'lucide-react';
 import * as geminiService from '../services/geminiService';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } from 'docx';
 import { saveAs } from 'file-saver';
@@ -20,6 +20,7 @@ interface StepEditorProps {
   onUpdateSections: (sections: SectionContent[]) => void;
   userRequirements: UserRequirements;
   onUpdateRequirements: (req: UserRequirements) => void;
+  addToast: (type: 'success' | 'error' | 'info', message: string) => void;
 }
 
 const ACTION_STYLES: Record<string, { label: string; icon: React.ReactNode; bg: string; color: string; border: string }> = {
@@ -40,7 +41,7 @@ const CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
 const StepEditor: React.FC<StepEditorProps> = ({
   sections, onRefineSection, onRefineSectionWithRefs, onFinish, isProcessing,
   selectedTitle, currentTitle, overallAnalysisSummary,
-  onUpdateSections, userRequirements, onUpdateRequirements
+  onUpdateSections, userRequirements, onUpdateRequirements, addToast
 }) => {
   const [activeTab, setActiveTab] = useState<string>(sections[0]?.id || '');
   const [expandedSuggestion, setExpandedSuggestion] = useState<string | null>(null);
@@ -48,6 +49,10 @@ const StepEditor: React.FC<StepEditorProps> = ({
   const [loadingRefineWithAnalysis, setLoadingRefineWithAnalysis] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<'paste' | null>(null);
   const [pasteContent, setPasteContent] = useState('');
+  const [showDiff, setShowDiff] = useState(false);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, label: '' });
+  const batchAbortRef = useRef(false);
   const sectionFileInputRef = useRef<HTMLInputElement>(null);
   const refDocFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,8 +83,9 @@ const StepEditor: React.FC<StepEditorProps> = ({
       onUpdateSections(sections.map(s =>
         s.id === sectionId ? { ...s, editSuggestions } : s
       ));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Deep analysis failed:', err);
+      addToast('error', `Lỗi phân tích "${section.title}": ${err?.message || 'Không xác định'}`);
     }
     setLoadingDeepAnalysis(null);
   };
@@ -113,8 +119,9 @@ const StepEditor: React.FC<StepEditorProps> = ({
           editSuggestions: s.editSuggestions.map(es => ({ ...es, applied: true }))
         } : s
       ));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Refine with analysis failed:', err);
+      addToast('error', `Lỗi sửa "${section?.title}": ${err?.message || 'Không xác định'}`);
     }
     setLoadingRefineWithAnalysis(null);
   };
@@ -296,14 +303,75 @@ const StepEditor: React.FC<StepEditorProps> = ({
       const blob = await Packer.toBlob(doc);
       const safeName = section.title.replace(/[^a-zA-Z0-9\u00C0-\u024F\u1E00-\u1EFF ]/g, '').trim().replace(/ +/g, '_');
       saveAs(blob, `${safeName}.docx`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Download section error:', error);
+      addToast('error', `Lỗi tải phần: ${error?.message || 'Không xác định'}`);
     }
   };
 
   const completedCount = sections.filter(s => s.refinedContent).length;
   const getChildren = (parentId: string) => sections.filter(s => getParentId(s) === parentId);
   const hasHierarchy = sections.some(s => getLevel(s) >= 2);
+
+  // --- Batch refine all sections ---
+  const handleBatchRefine = useCallback(async () => {
+    const leafSections = sections.filter(s => s.originalContent && s.originalContent.trim().length > 0);
+    if (leafSections.length === 0) return;
+
+    setBatchRunning(true);
+    batchAbortRef.current = false;
+    setBatchProgress({ current: 0, total: leafSections.length, label: '' });
+    addToast('info', `Bắt đầu sửa ${leafSections.length} phần...`);
+
+    let updatedSections = [...sections];
+    let successCount = 0;
+
+    for (let i = 0; i < leafSections.length; i++) {
+      if (batchAbortRef.current) {
+        addToast('info', `Đã dừng sau ${successCount}/${leafSections.length} phần.`);
+        break;
+      }
+      const sec = leafSections[i];
+      setBatchProgress({ current: i + 1, total: leafSections.length, label: sec.title.substring(0, 40) });
+
+      // Skip already refined
+      if (sec.refinedContent) {
+        successCount++;
+        continue;
+      }
+
+      try {
+        // Step 1: Deep analyze
+        const skknContext = { currentTitle, selectedTitle, allSectionTitles: sections.map(s => s.title), overallAnalysisSummary };
+        const content = sec.originalContent;
+        const editSuggestions = await geminiService.deepAnalyzeSection(sec.title, content, skknContext, userRequirements);
+
+        // Step 2: Refine with analysis
+        const refined = await geminiService.refineSectionWithAnalysis(
+          sec.title, content, selectedTitle || currentTitle,
+          editSuggestions, userRequirements, skknContext
+        );
+
+        updatedSections = updatedSections.map(s =>
+          s.id === sec.id ? { ...s, refinedContent: refined, editSuggestions: editSuggestions.map(es => ({ ...es, applied: true })) } : s
+        );
+        onUpdateSections(updatedSections);
+        successCount++;
+      } catch (err: any) {
+        console.error(`Batch refine error for "${sec.title}":`, err);
+        addToast('error', `Lỗi sửa "${sec.title}": ${err?.message?.substring(0, 80) || 'Không xác định'}`);
+      }
+    }
+
+    setBatchRunning(false);
+    if (!batchAbortRef.current) {
+      addToast('success', `Hoàn thành! Đã sửa ${successCount}/${leafSections.length} phần.`);
+    }
+  }, [sections, currentTitle, selectedTitle, overallAnalysisSummary, userRequirements, onUpdateSections, addToast]);
+
+  const handleStopBatch = useCallback(() => {
+    batchAbortRef.current = true;
+  }, []);
 
   // Recursive tab renderer
   const renderSectionTab = (section: SectionContent, depth: number = 0) => {
@@ -369,7 +437,7 @@ const StepEditor: React.FC<StepEditorProps> = ({
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
           <h2 style={{ fontSize: 22, fontWeight: 800, color: '#134e4a', margin: 0 }}>Sửa nội dung từng phần</h2>
           <p style={{ fontSize: 13, color: '#64748b', margin: 0, marginTop: 4 }}>
@@ -377,7 +445,53 @@ const StepEditor: React.FC<StepEditorProps> = ({
             {selectedTitle && <span style={{ color: '#94a3b8' }}> · Đề tài: "{selectedTitle.substring(0, 50)}..."</span>}
           </p>
         </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {!batchRunning ? (
+            <button
+              onClick={handleBatchRefine}
+              className="btn-primary btn-sm"
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                border: 'none', fontSize: 12, fontWeight: 700, gap: 4,
+                padding: '6px 14px', borderRadius: 8
+              }}
+              title="AI tự động phân tích + sửa tất cả các phần chưa sửa"
+            >
+              <Zap size={13} /> AI Sửa Toàn Bộ
+            </button>
+          ) : (
+            <button
+              onClick={handleStopBatch}
+              className="btn-secondary btn-sm"
+              style={{ fontSize: 12, fontWeight: 600, gap: 4, color: '#dc2626', borderColor: '#fca5a5', padding: '6px 14px' }}
+            >
+              <Square size={12} /> Dừng ({batchProgress.current}/{batchProgress.total})
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Batch progress */}
+      {batchRunning && (
+        <div style={{
+          background: 'linear-gradient(135deg, #fffbeb, #fef3c7)', borderRadius: 8,
+          padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10,
+          border: '1px solid #fde68a'
+        }}>
+          <Loader2 size={14} className="animate-spin" style={{ color: '#d97706' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>
+              Đang sửa {batchProgress.current}/{batchProgress.total}: {batchProgress.label}...
+            </div>
+            <div className="progress-bar" style={{ height: 4, marginTop: 4 }}>
+              <div className="progress-bar-fill" style={{
+                width: `${(batchProgress.current / batchProgress.total) * 100}%`,
+                background: 'linear-gradient(90deg, #f59e0b, #d97706)'
+              }}></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="progress-bar">
@@ -617,10 +731,23 @@ const StepEditor: React.FC<StepEditorProps> = ({
 
               {/* Loading */}
               {isAnalyzing && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px 0', gap: 8 }}>
-                  <Loader2 size={28} color="#f59e0b" className="animate-spin-slow" />
-                  <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Đang phân tích sâu...</span>
-                  <span style={{ fontSize: 10, color: '#64748b' }}>Dựa trên bối cảnh SKKN tổng thể + tài liệu TK</span>
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 12px', gap: 8,
+                  background: 'rgba(255, 251, 235, 0.5)', borderRadius: 8
+                }}>
+                  <div style={{ position: 'relative', width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="56" height="56" viewBox="0 0 56 56" style={{ transform: 'rotate(-90deg)' }}>
+                      <circle cx="28" cy="28" r="24" fill="none" stroke="#fde68a" strokeWidth="4" />
+                      <circle cx="28" cy="28" r="24" fill="none" stroke="#f59e0b" strokeWidth="4"
+                        strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 24}`}
+                        strokeDashoffset={`${2 * Math.PI * 24 * 0.3}`}
+                        className="animate-spin-slow" style={{ transformOrigin: '28px 28px' }}
+                      />
+                    </svg>
+                    <Search size={16} style={{ position: 'absolute', color: '#d97706' }} />
+                  </div>
+                  <span style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>Đang phân tích sâu...</span>
+                  <span style={{ fontSize: 10, color: '#b45309' }}>Đọc ngữ cảnh → Tìm điểm yếu → Tạo đề xuất sửa</span>
                 </div>
               )}
 
@@ -771,12 +898,22 @@ const StepEditor: React.FC<StepEditorProps> = ({
                   alignItems: 'center', justifyContent: 'center', gap: 10,
                   background: 'rgba(240, 253, 250, 0.9)'
                 }}>
-                  <Loader2 size={32} color="#0d9488" className="animate-spin-slow" />
-                  <span style={{ fontSize: 13, color: '#0d9488', fontWeight: 600 }}>
-                    Đang sửa nội dung theo đề xuất...
+                  <div style={{ position: 'relative', width: 60, height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="60" height="60" viewBox="0 0 60 60" style={{ transform: 'rotate(-90deg)' }}>
+                      <circle cx="30" cy="30" r="25" fill="none" stroke="#ccfbf1" strokeWidth="4" />
+                      <circle cx="30" cy="30" r="25" fill="none" stroke="#0d9488" strokeWidth="4"
+                        strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 25}`}
+                        strokeDashoffset={`${2 * Math.PI * 25 * 0.3}`}
+                        className="animate-spin-slow" style={{ transformOrigin: '30px 30px' }}
+                      />
+                    </svg>
+                    <Sparkles size={18} style={{ position: 'absolute', color: '#0d9488' }} />
+                  </div>
+                  <span style={{ fontSize: 13, color: '#0d9488', fontWeight: 700 }}>
+                    Đang sửa nội dung...
                   </span>
-                  <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                    Giọng văn tự nhiên · Bám sát phân tích · Tham khảo tài liệu
+                  <span style={{ fontSize: 10, color: '#64748b' }}>
+                    Áp dụng đề xuất → Viết lại tự nhiên → Kiểm tra chất lượng
                   </span>
                 </div>
               )}
@@ -785,6 +922,13 @@ const StepEditor: React.FC<StepEditorProps> = ({
               {activeSection.refinedContent && !isRefining && (
                 <>
                   <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => setShowDiff(!showDiff)}
+                      className={`btn-secondary btn-sm`}
+                      style={{ fontSize: 10, color: showDiff ? '#0d9488' : undefined, borderColor: showDiff ? '#14b8a6' : undefined }}
+                    >
+                      <GitCompareArrows size={11} /> {showDiff ? 'Ẩn so sánh' : 'So sánh'}
+                    </button>
                     <button
                       onClick={() => handleDownloadSection(activeSection)}
                       className="btn-secondary btn-sm"
@@ -801,17 +945,50 @@ const StepEditor: React.FC<StepEditorProps> = ({
                       <RefreshCw size={11} /> Sửa lại
                     </button>
                   </div>
-                  <textarea
-                    value={activeSection.refinedContent}
-                    onChange={e => handleContentEdit(activeSection.id, e.target.value)}
-                    style={{
-                      width: '100%', flex: 1, minHeight: 350,
-                      border: '1px solid #ccfbf1', outline: 'none', resize: 'vertical',
-                      fontSize: 12, lineHeight: 1.8, color: '#334155',
-                      padding: 10, fontFamily: 'inherit', background: '#fafffe',
-                      borderRadius: 6
-                    }}
-                  />
+                  {showDiff ? (
+                    <div style={{ display: 'flex', gap: 6, flex: 1, minHeight: 350 }}>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', padding: '4px 8px', background: '#fef2f2', borderRadius: '6px 6px 0 0' }}>
+                          Bản gốc
+                        </div>
+                        <textarea
+                          readOnly
+                          value={activeSection.originalContent}
+                          style={{
+                            width: '100%', flex: 1, border: '1px solid #fecaca', outline: 'none', resize: 'none',
+                            fontSize: 11, lineHeight: 1.7, color: '#64748b', padding: 8, fontFamily: 'inherit',
+                            background: '#fffbfb', borderRadius: '0 0 6px 6px'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#059669', padding: '4px 8px', background: '#ecfdf5', borderRadius: '6px 6px 0 0' }}>
+                          Đã sửa
+                        </div>
+                        <textarea
+                          value={activeSection.refinedContent}
+                          onChange={e => handleContentEdit(activeSection.id, e.target.value)}
+                          style={{
+                            width: '100%', flex: 1, border: '1px solid #a7f3d0', outline: 'none', resize: 'none',
+                            fontSize: 11, lineHeight: 1.7, color: '#334155', padding: 8, fontFamily: 'inherit',
+                            background: '#fafffe', borderRadius: '0 0 6px 6px'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <textarea
+                      value={activeSection.refinedContent}
+                      onChange={e => handleContentEdit(activeSection.id, e.target.value)}
+                      style={{
+                        width: '100%', flex: 1, minHeight: 350,
+                        border: '1px solid #ccfbf1', outline: 'none', resize: 'vertical',
+                        fontSize: 12, lineHeight: 1.8, color: '#334155',
+                        padding: 10, fontFamily: 'inherit', background: '#fafffe',
+                        borderRadius: 6
+                      }}
+                    />
+                  )}
                 </>
               )}
 

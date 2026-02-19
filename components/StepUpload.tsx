@@ -6,9 +6,11 @@ import mammoth from 'mammoth';
 interface StepUploadProps {
   onUpload: (text: string, fileName: string) => void;
   isProcessing: boolean;
+  progress?: number;
+  stage?: string;
 }
 
-const StepUpload: React.FC<StepUploadProps> = ({ onUpload, isProcessing }) => {
+const StepUpload: React.FC<StepUploadProps> = ({ onUpload, isProcessing, progress = 0, stage = '' }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -87,26 +89,53 @@ const StepUpload: React.FC<StepUploadProps> = ({ onUpload, isProcessing }) => {
   };
 
   if (isProcessing) {
+    const pct = Math.min(progress, 100);
     return (
       <div className="animate-fade-in" style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         minHeight: '60vh', gap: 16
       }}>
-        <div className="animate-pulse-glow" style={{
-          width: 80, height: 80, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #ccfbf1, #99f6e4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 4px 0 #5eead4, 0 8px 24px rgba(20, 184, 166, 0.2)'
+        {/* Circular progress */}
+        <div style={{
+          position: 'relative', width: 100, height: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
         }}>
-          <Loader2 size={36} color="#0d9488" className="animate-spin-slow" />
+          <svg width="100" height="100" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#e2e8f0" strokeWidth="6" />
+            <circle cx="50" cy="50" r="42" fill="none" stroke="url(#progressGrad)" strokeWidth="6"
+              strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 42}`}
+              strokeDashoffset={`${2 * Math.PI * 42 * (1 - pct / 100)}`}
+              style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+            />
+            <defs>
+              <linearGradient id="progressGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#14b8a6" />
+                <stop offset="100%" stopColor="#0d9488" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <span style={{
+            position: 'absolute', fontSize: 22, fontWeight: 800, color: '#0d9488',
+            fontVariantNumeric: 'tabular-nums'
+          }}>
+            {pct}%
+          </span>
         </div>
-        <h3 style={{ fontSize: 20, fontWeight: 700, color: '#134e4a' }}>Đang phân tích tài liệu...</h3>
-        <p style={{ color: '#64748b', fontSize: 14, textAlign: 'center', maxWidth: 400 }}>
-          AI đang đọc và đánh giá chi tiết cấu trúc, chất lượng, và nguy cơ đạo văn của SKKN.
+
+        <h3 style={{ fontSize: 20, fontWeight: 700, color: '#134e4a', margin: 0 }}>
+          Đang phân tích tài liệu...
+        </h3>
+        <p style={{ color: '#0d9488', fontSize: 14, fontWeight: 600, margin: 0 }}>
+          {stage || 'Đang xử lý...'}
         </p>
-        <div className="progress-bar" style={{ width: 240, marginTop: 8 }}>
-          <div className="progress-bar-fill primary animate-shimmer" style={{ width: '60%' }}></div>
+        <div className="progress-bar" style={{ width: 280, marginTop: 4 }}>
+          <div className="progress-bar-fill primary" style={{
+            width: `${pct}%`, transition: 'width 0.6s ease'
+          }}></div>
         </div>
+        <p style={{ color: '#94a3b8', fontSize: 11, margin: 0 }}>
+          Quá trình phân tích gồm: đánh giá chất lượng → tách cấu trúc → xác nhận
+        </p>
       </div>
     );
   }
