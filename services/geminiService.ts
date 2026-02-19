@@ -38,7 +38,9 @@ const getModelChain = (): string[] => {
   return [selected, ...allModels.filter(m => m !== selected)];
 };
 
-// --- Timeout wrapper ---
+// --- Utilities ---
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 const withTimeout = <T>(promise: Promise<T>, ms: number, label: string = 'API call'): Promise<T> => {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -51,18 +53,66 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, label: string = 'API ca
   });
 };
 
+// --- Repair truncated JSON ---
+const repairJSON = (text: string): any => {
+  // Try parse as-is first
+  try { return JSON.parse(text); } catch (_) { }
+
+  // Try to fix truncated JSON by closing open brackets/braces
+  let fixed = text.trim();
+  // Remove trailing incomplete key-value pairs
+  fixed = fixed.replace(/,\s*"[^"]*"?\s*:?\s*"?[^"]*$/, '');
+  fixed = fixed.replace(/,\s*$/, '');
+
+  // Count open/close brackets
+  const opens = { '{': 0, '[': 0 };
+  let inString = false;
+  let escape = false;
+  for (const ch of fixed) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') opens['{']++;
+    if (ch === '}') opens['{']--;
+    if (ch === '[') opens['[']++;
+    if (ch === ']') opens['[']--;
+  }
+  // If we're inside a string, close it
+  if (inString) fixed += '"';
+  // Close remaining brackets
+  while (opens['['] > 0) { fixed += ']'; opens['[']--; }
+  while (opens['{'] > 0) { fixed += '}'; opens['{']--; }
+
+  try { return JSON.parse(fixed); } catch (_) { }
+  throw new Error(`Cannot parse or repair JSON (length: ${text.length})`);
+};
+
+// --- Fallback with retry on 429 ---
 const callWithFallback = async (fn: (model: string) => Promise<any>, timeoutMs: number = 90000): Promise<any> => {
   const chain = getModelChain();
   let lastError: any = null;
 
   for (const model of chain) {
-    try {
-      return await withTimeout(fn(model), timeoutMs, `Model ${model}`);
-    } catch (error: any) {
-      lastError = error;
-      console.warn(`Model ${model} failed, trying next...`, error.message);
-      if (error.message === 'API_KEY_MISSING') throw error;
-      continue;
+    // Try up to 2 times per model (1 retry on 429)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await withTimeout(fn(model), timeoutMs, `Model ${model}`);
+      } catch (error: any) {
+        lastError = error;
+        const errMsg = error.message || '';
+        if (errMsg === 'API_KEY_MISSING') throw error;
+
+        // If 429 rate limit on first attempt, wait and retry same model
+        if (attempt === 0 && (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota'))) {
+          console.warn(`Model ${model} hit rate limit, waiting 45s before retry...`);
+          await sleep(45000);
+          continue;
+        }
+
+        console.warn(`Model ${model} failed (attempt ${attempt + 1}), trying next...`, errMsg.substring(0, 200));
+        break; // Move to next model
+      }
     }
   }
   throw lastError;
@@ -102,7 +152,7 @@ ${truncated}
       contents: prompt,
       config: {
         temperature: 0,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -151,12 +201,12 @@ ${truncated}
     });
 
     if (!response.text) throw new Error("No response from AI");
-    const parsed = JSON.parse(response.text);
+    const parsed = repairJSON(response.text);
     return {
       analysis: {
-        plagiarismScore: parsed.plagiarismScore,
-        qualityScore: parsed.qualityScore,
-        structure: parsed.structure,
+        plagiarismScore: parsed.plagiarismScore || 0,
+        qualityScore: parsed.qualityScore || 0,
+        structure: parsed.structure || { hasIntro: false, hasTheory: false, hasReality: false, hasSolution: false, hasResult: false, hasConclusion: false, missing: [] },
         qualityCriteria: parsed.qualityCriteria,
         sectionFeedback: parsed.sectionFeedback || []
       },
