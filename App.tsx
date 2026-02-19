@@ -578,8 +578,12 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
       console.error("Analysis failed", error);
       if (error.message === 'API_KEY_MISSING') {
         setShowApiModal(true);
+      } else if (error.message?.includes('429') || error.message?.includes('RESOURCE_EXHAUSTED') || error.message?.includes('quota')) {
+        addToast('error', 'Hết giới hạn API (rate limit). Vui lòng đợi 1-2 phút rồi thử lại.');
+      } else if (error.message?.includes('Cannot parse') || error.message?.includes('JSON')) {
+        addToast('error', 'AI trả về dữ liệu không hợp lệ. Vui lòng thử lại.');
       } else {
-        addToast('error', 'Lỗi phân tích. Vui lòng kiểm tra API Key.');
+        addToast('error', 'Lỗi phân tích. Vui lòng kiểm tra API Key hoặc đợi 1 phút rồi thử lại.');
       }
     } finally {
       setIsProcessing(false);
