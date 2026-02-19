@@ -25,18 +25,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         setIsLoading(true);
 
         try {
-            const accounts = accountsData as { username: string; password: string; displayName: string }[];
-            const matched = accounts.find(
-                acc => acc.username === username.trim()
-                    && acc.password === password
-            );
+            // Check if password is correct (fixed: SKKN100)
+            if (password === 'SKKN100') {
+                const accounts = accountsData as { username: string; password: string; displayName: string }[];
+                // Try to find if user exists in our data to get a nice display name
+                const matched = accounts.find(
+                    acc => acc.username === username.trim()
+                );
 
-            if (matched) {
+                const displayName = matched ? matched.displayName : username.trim();
+
                 sessionStorage.setItem('skkn_logged_in', 'true');
-                sessionStorage.setItem('skkn_display_name', matched.displayName);
-                onLoginSuccess(matched.displayName);
+                sessionStorage.setItem('skkn_display_name', displayName);
+                onLoginSuccess(displayName);
             } else {
-                setError('Sai tài khoản hoặc mật khẩu. Vui lòng thử lại.');
+                setError('Mật khẩu không đúng. Vui lòng thử lại.');
             }
         } catch (err) {
             setError('Lỗi xác thực. Vui lòng thử lại.');
@@ -94,7 +97,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                         SKKN Editor Pro
                     </h1>
                     <p style={{ fontSize: 13, color: '#64748b' }}>
-                        Vui lòng đăng nhập để tiếp tục
+                        Nhập tài khoản bất kỳ & Mật khẩu: SKKN100
                     </p>
                 </div>
 
