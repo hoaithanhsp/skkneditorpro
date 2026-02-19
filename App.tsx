@@ -465,19 +465,32 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
 
       try {
         const parsed = await geminiService.parseStructure(text);
+
+        // AI giờ chỉ trả cấu trúc (không có content) → gán content từ local parser
+        const matchContent = (aiTitle: string): string => {
+          const aiPrefix = aiTitle.toLowerCase().substring(0, 30);
+          for (const local of localSections) {
+            const localPrefix = local.title.toLowerCase().substring(0, 30);
+            if (aiPrefix.includes(localPrefix) || localPrefix.includes(aiPrefix)) {
+              return local.originalContent;
+            }
+          }
+          return '';
+        };
+
         sections = parsed.map(s => ({
           id: s.id,
           title: s.title,
           level: s.level || 1,
           parentId: s.parentId || undefined,
-          originalContent: s.content || '',
+          originalContent: s.content || matchContent(s.title),
           refinedContent: '',
           isProcessing: false,
           suggestions: [],
           editSuggestions: []
         }));
 
-        // VALIDATION: Aggressive cross-check with local parser
+        // VALIDATION: Cross-check with local parser
         const aiLevel1Count = sections.filter(s => s.level === 1).length;
         const localLevel1Count = localSections.filter(s => s.level === 1).length;
         const aiTotalCount = sections.length;
@@ -487,8 +500,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
 
         // Case 1: AI found way too few sections — use local parser as base
         if (aiTotalCount <= 3 && localTotalCount > aiTotalCount) {
-          console.warn(`AI only found ${aiTotalCount} sections, using local parser (${localTotalCount} sections) as base and merging AI results`);
-          // Use local as base, but try to add AI sub-sections not found locally
+          console.warn(`AI only found ${aiTotalCount} sections, using local parser (${localTotalCount} sections) as base`);
           const localTitles = localSections.map(s => s.title.toLowerCase().substring(0, 25));
           const mergedSections = [...localSections];
           for (const aiSec of sections) {
@@ -502,7 +514,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
         }
         // Case 2: AI missing some level-1 sections compared to local
         else if (aiLevel1Count < localLevel1Count) {
-          console.warn(`AI found ${aiLevel1Count} L1 sections but local found ${localLevel1Count}. Merging missing...`);
+          console.warn(`AI found ${aiLevel1Count} L1 but local found ${localLevel1Count}. Merging missing...`);
           const existingTitles = sections.map(s => s.title.toLowerCase().substring(0, 25));
           for (const localSec of localSections) {
             const titlePrefix = localSec.title.toLowerCase().substring(0, 25);
@@ -512,9 +524,9 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
             }
           }
         }
-        // Case 3: AI has fewer total sections than local — merge sub-sections too
+        // Case 3: AI has fewer total sections than local
         else if (localTotalCount > aiTotalCount + 2) {
-          console.warn(`Local parser found ${localTotalCount} total sections vs AI's ${aiTotalCount}. Merging missing sub-sections...`);
+          console.warn(`Local has ${localTotalCount} vs AI's ${aiTotalCount}. Merging missing...`);
           const existingTitles = sections.map(s => s.title.toLowerCase().substring(0, 25));
           for (const localSec of localSections) {
             const titlePrefix = localSec.title.toLowerCase().substring(0, 25);
@@ -524,9 +536,10 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
             }
           }
         }
-      } catch (parseError) {
-        console.warn('AI parse failed, using local fallback', parseError);
+      } catch (parseError: any) {
+        console.warn('AI parse failed, using local fallback:', parseError.message);
         sections = localSections;
+        addToast('warning', `AI tách cấu trúc thất bại (${parseError.message?.includes('timed out') ? 'timeout' : 'lỗi'}). Dùng bộ phân tích cục bộ.`);
       }
 
       // Ensure at least some sections
