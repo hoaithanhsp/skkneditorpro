@@ -4,6 +4,7 @@ export enum AppStep {
   DASHBOARD = 2,
   TITLE_SELECTION = 3,
   CONTENT_REFINEMENT = 4,
+  QUICK_EDIT = 5,
 }
 
 export interface AnalysisMetrics {

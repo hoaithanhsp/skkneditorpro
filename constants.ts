@@ -13,6 +13,7 @@ export const STEP_LABELS = [
   { step: 2, label: 'Tổng quan', icon: '📋' },
   { step: 3, label: 'Tên đề tài', icon: '✨' },
   { step: 4, label: 'Sửa nội dung', icon: '✍️' },
+  { step: 5, label: 'Sửa biện pháp', icon: '🔧' },
 ];
 
 export const SUGGESTION_TYPES = {

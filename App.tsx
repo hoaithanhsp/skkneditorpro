@@ -8,6 +8,7 @@ import StepAnalysis from './components/StepAnalysis';
 import StepDashboard from './components/StepDashboard';
 import StepTitle from './components/StepTitle';
 import StepEditor from './components/StepEditor';
+import StepQuickEdit from './components/StepQuickEdit';
 import ApiKeyModal from './components/ApiKeyModal';
 import HistoryPanel from './components/HistoryPanel';
 import ShortenSKKN from './components/ShortenSKKN';
@@ -356,7 +357,6 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   const [showApiModal, setShowApiModal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showShortenMode, setShowShortenMode] = useState(false);
-  const [quickEditMode, setQuickEditMode] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [userRequirements, setUserRequirements] = useState<UserRequirements>({
     pageLimit: null,
@@ -390,11 +390,10 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   const handleStepClick = async (step: number) => {
     if (step === currentStep) return;
 
-    // Allow jumping to CONTENT_REFINEMENT directly (Quick Edit Mode)
-    if (step === AppStep.CONTENT_REFINEMENT && !data.originalText) {
-      setQuickEditMode(true);
-      setCurrentStep(AppStep.CONTENT_REFINEMENT);
-      setMaxReachedStep(prev => Math.max(prev, AppStep.CONTENT_REFINEMENT));
+    // Allow jumping to QUICK_EDIT any time
+    if (step === AppStep.QUICK_EDIT) {
+      setCurrentStep(AppStep.QUICK_EDIT);
+      setMaxReachedStep(prev => Math.max(prev, AppStep.QUICK_EDIT));
       return;
     }
 
@@ -422,11 +421,6 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     setCurrentStep(step as AppStep);
     setMaxReachedStep(prev => Math.max(prev, step));
   };
-
-  // --- Quick edit: add sections from uploaded files ---
-  const handleAddQuickEditSections = useCallback((newSections: SectionContent[]) => {
-    setData(prev => ({ ...prev, sections: [...prev.sections, ...newSections] }));
-  }, []);
 
   // --- Auto-save to history ---
   const autoSave = useCallback(() => {
@@ -939,9 +933,11 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
             userRequirements={userRequirements}
             onUpdateRequirements={setUserRequirements}
             addToast={addToast}
-            quickEditMode={quickEditMode}
-            onAddSections={handleAddQuickEditSections}
           />
+        )}
+
+        {!showShortenMode && currentStep === AppStep.QUICK_EDIT && (
+          <StepQuickEdit addToast={addToast} />
         )}
       </main>
 
