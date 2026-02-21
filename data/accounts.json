@@ -1,7 +1,9 @@
 [
     {"username": "admin","password": "123","displayName": "Quản trị viên"},
     {"username": "admin1","password": "SKKN100","displayName": "GV"},
+    {"username": "dangtranbinh123@gmail.com","password": "SKKN100","displayName": "GV"},
     {"username": "maria.doantrang@gmail.com","password": "SKKN100","displayName": "GV"},
     {"username": "admin1","password": "SKKN100","displayName": "GV"},
     {"username": "gv01","password": "12345","displayName": "Nguyễn Văn A"}
 ]
+
