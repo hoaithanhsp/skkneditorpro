@@ -6,6 +6,18 @@ import { buildKnowledgeContext, SCORING_CRITERIA, CLICHE_PHRASES, COMPARISON_TAB
 const STORAGE_KEY_API = 'skkn_editor_api_key';
 const STORAGE_KEY_MODEL = 'skkn_editor_model';
 
+// --- Fallback API Keys (tự động chuyển khi key hết quota) ---
+const FALLBACK_API_KEYS: string[] = [
+  'AIzaSyBVglmJjMCP5SneokIBij8ZazTRScfxqUM',
+  'AIzaSyCA8TnfB-x2JjNdsOVe8SjVNYNne9e_sHk',
+  'AIzaSyAuD5aEMEuCrGJ9DTuvWiiEb6QQ6hZnBlc',
+  'AIzaSyA1CIAEDWzWrBs0KQW1tfPwoHFsiXyQlCQ',
+  'AIzaSyCxQQI8973lLssmnol7TIz9Qfu6bLW2QNY',
+  'AIzaSyAVOJQb1eUQRNpdQAz3UuZ4CAMpcj0eaDc',
+];
+
+const exhaustedKeys = new Set<string>(); // Track các key đã hết quota trong session này
+
 export const getApiKey = (): string | null => {
   return localStorage.getItem(STORAGE_KEY_API);
 };
@@ -22,6 +34,35 @@ export const getSelectedModel = (): AIModelId => {
 
 export const setSelectedModel = (model: AIModelId): void => {
   localStorage.setItem(STORAGE_KEY_MODEL, model);
+};
+
+// Kiểm tra error có phải do hết quota / rate limit / key sai không
+const isQuotaOrKeyError = (error: any): boolean => {
+  const msg = (error?.message || '').toLowerCase();
+  return msg.includes('429') || msg.includes('resource_exhausted') || msg.includes('quota')
+    || msg.includes('api_key_invalid') || msg.includes('api key not valid')
+    || msg.includes('permission_denied') || msg.includes('forbidden');
+};
+
+// Lấy tất cả key khả dụng: user key đầu tiên, rồi fallback keys
+const getAllAvailableKeys = (): string[] => {
+  const keys: string[] = [];
+  const userKey = getApiKey();
+  if (userKey && !exhaustedKeys.has(userKey)) {
+    keys.push(userKey);
+  }
+  for (const key of FALLBACK_API_KEYS) {
+    if (!exhaustedKeys.has(key)) {
+      keys.push(key);
+    }
+  }
+  // Nếu tất cả đều exhausted, reset và thử lại tất cả
+  if (keys.length === 0) {
+    exhaustedKeys.clear();
+    if (userKey) keys.push(userKey);
+    keys.push(...FALLBACK_API_KEYS);
+  }
+  return keys;
 };
 
 const getAI = () => {
@@ -88,30 +129,49 @@ const repairJSON = (text: string): any => {
   throw new Error(`Cannot parse or repair JSON (length: ${text.length})`);
 };
 
-// --- Fallback with retry on 429 ---
-const callWithFallback = async (fn: (model: string) => Promise<any>, timeoutMs: number = 90000): Promise<any> => {
-  const chain = getModelChain();
+// --- Fallback with retry on 429 + API key rotation ---
+const callWithFallback = async (fn: (model: string, ai: GoogleGenAI) => Promise<any>, timeoutMs: number = 90000): Promise<any> => {
+  // Kiểm tra user có API key không (bắt buộc phải nhập ít nhất 1 lần)
+  if (!getApiKey()) throw new Error("API_KEY_MISSING");
+
+  const availableKeys = getAllAvailableKeys();
   let lastError: any = null;
 
-  for (const model of chain) {
-    // Try up to 2 times per model (1 retry on 429)
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        return await withTimeout(fn(model), timeoutMs, `Model ${model}`);
-      } catch (error: any) {
-        lastError = error;
-        const errMsg = error.message || '';
-        if (errMsg === 'API_KEY_MISSING') throw error;
+  for (const apiKey of availableKeys) {
+    const ai = new GoogleGenAI({ apiKey });
+    const chain = getModelChain();
+    let keyExhausted = false;
 
-        // If 429 rate limit on first attempt, wait and retry same model
-        if (attempt === 0 && (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota'))) {
-          console.warn(`Model ${model} hit rate limit, waiting 45s before retry...`);
-          await sleep(45000);
-          continue;
+    for (const model of chain) {
+      if (keyExhausted) break;
+
+      // Try up to 2 times per model (1 retry on 429)
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await withTimeout(fn(model, ai), timeoutMs, `Model ${model}`);
+        } catch (error: any) {
+          lastError = error;
+          const errMsg = error.message || '';
+
+          // Nếu lỗi quota/key → đánh dấu key hết, chuyển sang key tiếp
+          if (isQuotaOrKeyError(error)) {
+            exhaustedKeys.add(apiKey);
+            const keyHint = `...${apiKey.slice(-6)}`;
+            console.warn(`🔑 Key ${keyHint} hết quota/không hợp lệ, chuyển key tiếp theo...`);
+            keyExhausted = true;
+            break;
+          }
+
+          // If 429 rate limit on first attempt (nhẹ, không phải quota hết), wait and retry same model
+          if (attempt === 0 && (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED'))) {
+            console.warn(`Model ${model} hit rate limit, waiting 15s before retry...`);
+            await sleep(15000);
+            continue;
+          }
+
+          console.warn(`Model ${model} failed (attempt ${attempt + 1}), trying next...`, errMsg.substring(0, 200));
+          break; // Move to next model
         }
-
-        console.warn(`Model ${model} failed (attempt ${attempt + 1}), trying next...`, errMsg.substring(0, 200));
-        break; // Move to next model
       }
     }
   }
@@ -120,7 +180,6 @@ const callWithFallback = async (fn: (model: string) => Promise<any>, timeoutMs: 
 
 // --- Analysis ---
 export const analyzeSKKN = async (text: string): Promise<{ analysis: AnalysisMetrics, currentTitle: string }> => {
-  const ai = getAI();
   const truncated = text.substring(0, 8000);
 
   // Build scoring criteria context
@@ -146,7 +205,7 @@ Văn bản:
 ${truncated}
   `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -219,7 +278,6 @@ ${truncated}
 // CHỈ yêu cầu AI trả về CẤU TRÚC (id, title, level, parentId) — KHÔNG trả content
 // Content sẽ được gán từ local parser dựa trên vị trí heading
 export const parseStructure = async (text: string): Promise<{ id: string, title: string, level: number, parentId: string, content: string }[]> => {
-  const ai = getAI();
   // Giảm xuống 25K ký tự vì không cần AI đọc toàn bộ content, chỉ cần nhận diện heading
   const truncated = text.substring(0, 25000);
 
@@ -245,7 +303,7 @@ export const parseStructure = async (text: string): Promise<{ id: string, title:
     """
   `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -275,7 +333,6 @@ export const parseStructure = async (text: string): Promise<{ id: string, title:
 
 // --- Title Suggestions ---
 export const generateTitleSuggestions = async (currentTitle: string, contentSummary: string): Promise<TitleSuggestion[]> => {
-  const ai = getAI();
   const prompt = `
     Bạn là chuyên gia đặt tên đề tài SKKN. Tên đề tài cũ: "${currentTitle}"
     
@@ -291,7 +348,7 @@ export const generateTitleSuggestions = async (currentTitle: string, contentSumm
     Nội dung sơ lược: ${contentSummary.substring(0, 3000)}
   `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -324,7 +381,6 @@ export const generateSectionSuggestions = async (
   originalContent: string,
   contextTitle: string
 ): Promise<SectionSuggestion[]> => {
-  const ai = getAI();
 
   const prompt = `
     Bạn là chuyên gia thẩm định SKKN. Hãy phân tích phần "${sectionName}" và đưa ra các GỢI Ý SỬA cụ thể.
@@ -344,7 +400,7 @@ export const generateSectionSuggestions = async (
     "${originalContent}"
   `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -377,7 +433,6 @@ export const refineSectionContent = async (
   originalContent: string,
   newTitle: string
 ): Promise<string> => {
-  const ai = getAI();
 
   // Get section-specific knowledge
   const knowledgeContext = buildKnowledgeContext(sectionName);
@@ -421,7 +476,7 @@ ${COMPARISON_TABLE_TEMPLATE}
     Trả về nội dung đã sửa. Định dạng đẹp, chuẩn. Bảng biểu dùng markdown table. Công thức toán viết dạng LaTeX.
   `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -486,7 +541,6 @@ export const deepAnalyzeSection = async (
   },
   userRequirements: UserRequirements
 ): Promise<SectionEditSuggestion[]> => {
-  const ai = getAI();
 
   // Build reference docs context
   const refDocsContext = userRequirements.referenceDocuments.length > 0
@@ -549,7 +603,7 @@ ${sectionContent.substring(0, 8000)}
 """
   `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -586,7 +640,6 @@ export const refineSectionWithReferences = async (
   newTitle: string,
   userRequirements: UserRequirements
 ): Promise<string> => {
-  const ai = getAI();
   const knowledgeContext = buildKnowledgeContext(sectionName);
 
   const needsTable = /kết quả|hiệu quả|thực nghiệm|so sánh|khảo sát/i.test(sectionName);
@@ -637,7 +690,7 @@ Nội dung gốc:
 Trả về nội dung đã sửa. Định dạng đẹp, chuẩn. Bảng biểu dùng markdown table.
   `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -660,7 +713,6 @@ export const refineSectionWithAnalysis = async (
     overallAnalysisSummary: string;
   }
 ): Promise<string> => {
-  const ai = getAI();
   const knowledgeContext = buildKnowledgeContext(sectionName);
 
   const needsTable = /kết quả|hiệu quả|thực nghiệm|so sánh|khảo sát/i.test(sectionName);
@@ -731,7 +783,7 @@ Nội dung gốc:
 Trả về nội dung đã sửa hoàn chỉnh. Định dạng đẹp, chuẩn. Bảng biểu dùng markdown table.
   `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -782,7 +834,6 @@ async function shortenOneSection(
   originalTotalChars: number,
   targetTotalPages: number
 ): Promise<string> {
-  const ai = getAI();
 
   const prompt = `
 Bạn là chuyên gia biên tập SKKN. Nhiệm vụ: VIẾT LẠI phần "${sectionTitle}" của SKKN cho ngắn gọn hơn.
@@ -808,7 +859,7 @@ ${sectionContent}
 ===== HẾT =====
 `;
 
-  return callWithFallback(async (model) => {
+  return callWithFallback(async (model, ai) => {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
