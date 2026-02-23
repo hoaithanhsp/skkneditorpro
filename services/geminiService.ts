@@ -8,12 +8,11 @@ const STORAGE_KEY_MODEL = 'skkn_editor_model';
 
 // --- Fallback API Keys (tự động chuyển khi key hết quota) ---
 const FALLBACK_API_KEYS: string[] = [
-  'AIzaSyBVglmJjMCP5SneokIBij8ZazTRScfxqUM',
-  'AIzaSyCA8TnfB-x2JjNdsOVe8SjVNYNne9e_sHk',
-  'AIzaSyAuD5aEMEuCrGJ9DTuvWiiEb6QQ6hZnBlc',
-  'AIzaSyA1CIAEDWzWrBs0KQW1tfPwoHFsiXyQlCQ',
-  'AIzaSyCxQQI8973lLssmnol7TIz9Qfu6bLW2QNY',
-  'AIzaSyAVOJQb1eUQRNpdQAz3UuZ4CAMpcj0eaDc',
+  'AIzaSyDBhv8uzTfLccF4yVRRbZcXL99udqk4u2c',
+  'AIzaSyAi1mM3-fGRoTqcbGlamka5SRAGUr9HF9Y',
+  'AIzaSyB4YLqOkzfd7xEliQSarXJAhi1Rll2zoFs',
+  'AIzaSyAE_RL_mpL_5pdVJ4w—jzTkEtTlAEcono',
+  'AIzaSyBsCkGTO9PkX2le8lJuNpTA9pUwKPREQWs',
 ];
 
 const exhaustedKeys = new Set<string>(); // Track các key đã hết quota trong session này
