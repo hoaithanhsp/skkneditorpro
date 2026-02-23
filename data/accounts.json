@@ -1,6 +1,7 @@
 [
     {"username": "admin","password": "123","displayName": "Quản trị viên"},
     {"username": "admin1","password": "SKKN100","displayName": "GV"},
+    {"username": "Slowsoftst@gmail.com","password": "SKKN100","displayName": "GV"},
     {"username": "nguyenhien21022020@gmail.com","password": "SKKN100","displayName": "GV"},
     {"username": "mr.ducletrong@gmail.com","password": "SKKN100","displayName": "GV"},
     {"username": "nguyenthoa2306dn@gmail.com","password": "SKKN100","displayName": "GV"},
@@ -10,6 +11,7 @@
     {"username": "diemthuan.truongtanthuan@gmail.com","password": "SKKN100","displayName": "GV"},
     {"username": "gv01","password": "12345","displayName": "Nguyễn Văn A"}
 ]
+
 
 
 
