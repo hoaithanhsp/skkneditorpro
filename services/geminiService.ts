@@ -8,8 +8,8 @@ const STORAGE_KEY_MODEL = 'skkn_editor_model';
 
 // --- Fallback API Keys (tự động chuyển khi key hết quota) ---
 const FALLBACK_API_KEYS: string[] = [
-  'AIzaSyDBhv8uzTfLccF4yVRRbZcXL99udqk4u2c',
-  'AIzaSyAi1mM3-fGRoTqcbGlamka5SRAGUr9HF9Y',
+  'AIzaSyBOuT03aNFvn14FMjHcG5sfTXRzKrPwJVo',
+  'AIzaSyCtLFg1DviJHvMaDeYtp0r_yiZ1eST7AOE',
   'AIzaSyB4YLqOkzfd7xEliQSarXJAhi1Rll2zoFs',
   'AIzaSyAE_RL_mpL_5pdVJ4w—jzTkEtTlAEcono',
   'AIzaSyBsCkGTO9PkX2le8lJuNpTA9pUwKPREQWs',
