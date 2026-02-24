@@ -11,7 +11,6 @@ const FALLBACK_API_KEYS: string[] = [
   'AIzaSyBOuT03aNFvn14FMjHcG5sfTXRzKrPwJVo',
   'AIzaSyCtLFg1DviJHvMaDeYtp0r_yiZ1eST7AOE',
   'AIzaSyB4YLqOkzfd7xEliQSarXJAhi1Rll2zoFs',
-  'AIzaSyAE_RL_mpL_5pdVJ4w—jzTkEtTlAEcono',
   'AIzaSyBsCkGTO9PkX2le8lJuNpTA9pUwKPREQWs',
 ];
 
@@ -235,9 +234,9 @@ ${truncated}
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  criteria: { type: Type.STRING, description: "Tên tiêu chí đánh giá" },
-                  score: { type: Type.NUMBER, description: "Điểm từ 1-10, đánh giá chính xác theo nội dung thực tế" },
-                  comment: { type: Type.STRING, description: "Nhận xét CỤ THỂ ít nhất 30 ký tự, giải thích tại sao cho điểm này. KHÔNG ĐƯỢC bỏ trống." }
+                  criteria: { type: Type.STRING, description: "Name of the evaluation criteria" },
+                  score: { type: Type.NUMBER, description: "Score from 1-10, evaluate accurately based on actual content" },
+                  comment: { type: Type.STRING, description: "Specific comment at least 30 characters, explain why this score was given. Must not be empty." }
                 }
               }
             },
@@ -317,9 +316,9 @@ export const parseStructure = async (text: string): Promise<{ id: string, title:
             properties: {
               id: { type: Type.STRING },
               title: { type: Type.STRING },
-              level: { type: Type.INTEGER, description: "1=cấp cao nhất, 2=mục con, 3=mục cháu" },
+              level: { type: Type.INTEGER, description: "1=highest level, 2=sub-section, 3=sub-sub-section" },
               parentId: { type: Type.STRING, description: "Empty string for level 1, parent id otherwise" },
-              content: { type: Type.STRING, description: "Để rỗng" }
+              content: { type: Type.STRING, description: "Leave empty" }
             }
           }
         }
@@ -362,7 +361,7 @@ export const generateTitleSuggestions = async (currentTitle: string, contentSumm
               title: { type: Type.STRING },
               noveltyPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
               overlapPercentage: { type: Type.NUMBER, description: "Estimated overlap 0-100" },
-              feasibility: { type: Type.STRING, description: "Cao/Trung bình/Thấp" },
+              feasibility: { type: Type.STRING, description: "High/Medium/Low" },
               score: { type: Type.NUMBER, description: "Overall score out of 10" }
             }
           }
@@ -616,10 +615,10 @@ ${sectionContent.substring(0, 8000)}
             properties: {
               id: { type: Type.STRING },
               action: { type: Type.STRING, description: "One of: replace, add, remove, modify" },
-              label: { type: Type.STRING, description: "Tóm tắt ngắn gọn đề xuất" },
-              description: { type: Type.STRING, description: "Giải thích chi tiết tại sao cần sửa" },
-              originalText: { type: Type.STRING, description: "Đoạn gốc cần sửa (trích chính xác). Để rỗng nếu action=add" },
-              suggestedText: { type: Type.STRING, description: "Đoạn thay thế/thêm mới. Để rỗng nếu action=remove" },
+              label: { type: Type.STRING, description: "Brief summary of the suggestion" },
+              description: { type: Type.STRING, description: "Detailed explanation of why this change is needed" },
+              originalText: { type: Type.STRING, description: "Original text to fix (exact quote). Leave empty if action=add" },
+              suggestedText: { type: Type.STRING, description: "Replacement or new text. Leave empty if action=remove" },
               category: { type: Type.STRING, description: "One of: content, example, structure, language, reference" }
             }
           }
