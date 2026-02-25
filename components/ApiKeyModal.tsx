@@ -3,21 +3,11 @@ import { Key, ExternalLink, Zap, Crown, X, Check } from 'lucide-react';
 import { AI_MODELS, AIModelId } from '../types';
 import { getApiKey, setApiKey, getSelectedModel, setSelectedModel } from '../services/geminiService';
 
-// Danh sách API Key có sẵn
-const PRESET_API_KEYS: string[] = [
-    'AIzaSyBVglmJjMCP5SneokIBij8ZazTRScfxqUM',
-    'AIzaSyCA8TnfB-x2JjNdsOVe8SjVNYNne9e_sHk',
-    'AIzaSyAuD5aEMEuCrGJ9DTuvWiiEb6QQ6hZnBlc',
-    'AIzaSyA1CIAEDWzWrBs0KQW1tfPwoHFsiXyQlCQ',
-    'AIzaSyCxQQI8973lLssmnol7TIz9Qfu6bLW2QNY',
-    'AIzaSyBOuT03aNFvn14FMjHcG5sfTXRzKrPwJVo',
-    'AIzaSyCtLFg1DviJHvMaDeYtp0r_yiZ1eST7AOE',
-    'AIzaSyDURc9bScGglKGZee2-NikG-8prgVduKNk',
-    'AIzaSyAi1mM3-fGRoTqcbGlamka5SRAGUr9HF9Y',
-    'AIzaSyB4YLqOkzfd7xEliQSarXJAhi1Rll2zoFs',
-    'AIzaSyAE_RL_mpL_5pdVJ4w—jzTkEtTlAEcono',
-    'AIzaSyBsCkGTO9PkX2le8lJuNpTA9pUwKPREQWs',
-];
+// Danh sách API Key có sẵn (đọc từ biến môi trường)
+const PRESET_API_KEYS: string[] = (process.env.VITE_GEMINI_API_KEYS || '')
+    .split(',')
+    .map(k => k.trim())
+    .filter(k => k.length > 0);
 
 // Hàm ẩn API key: hiện 8 ký tự đầu + dấu chấm + 4 ký tự cuối
 const maskApiKey = (key: string): string => {
@@ -87,56 +77,58 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSave, canC
                     )}
                 </div>
 
-                {/* Chọn API Key có sẵn */}
-                <div style={{ marginBottom: 20 }}>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 8 }}>
-                        🔑 Chọn API Key có sẵn
-                    </label>
-                    <div style={{
-                        maxHeight: 180, overflowY: 'auto',
-                        border: '1px solid #e2e8f0', borderRadius: 12,
-                        padding: 6, background: '#f8fafc'
-                    }}>
-                        {PRESET_API_KEYS.map((presetKey, index) => {
-                            const isSelected = key === presetKey;
-                            return (
-                                <div
-                                    key={index}
-                                    onClick={() => handleSelectPresetKey(presetKey)}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: 10,
-                                        padding: '8px 12px', borderRadius: 8,
-                                        cursor: 'pointer', transition: 'all 0.15s',
-                                        background: isSelected ? '#f0fdfa' : 'transparent',
-                                        border: isSelected ? '1.5px solid #14b8a6' : '1.5px solid transparent',
-                                        marginBottom: 2,
-                                    }}
-                                    onMouseEnter={e => {
-                                        if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = '#f1f5f9';
-                                    }}
-                                    onMouseLeave={e => {
-                                        if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-                                    }}
-                                >
-                                    <div style={{
-                                        width: 20, height: 20, borderRadius: 6, flexShrink: 0,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        background: isSelected ? '#14b8a6' : '#e2e8f0',
-                                        transition: 'all 0.15s'
-                                    }}>
-                                        {isSelected && <Check size={12} color="white" strokeWidth={3} />}
+                {/* Chọn API Key có sẵn - chỉ hiện khi có keys trong env */}
+                {PRESET_API_KEYS.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                        <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 8 }}>
+                            🔑 Chọn API Key có sẵn
+                        </label>
+                        <div style={{
+                            maxHeight: 180, overflowY: 'auto',
+                            border: '1px solid #e2e8f0', borderRadius: 12,
+                            padding: 6, background: '#f8fafc'
+                        }}>
+                            {PRESET_API_KEYS.map((presetKey, index) => {
+                                const isSelected = key === presetKey;
+                                return (
+                                    <div
+                                        key={index}
+                                        onClick={() => handleSelectPresetKey(presetKey)}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: 10,
+                                            padding: '8px 12px', borderRadius: 8,
+                                            cursor: 'pointer', transition: 'all 0.15s',
+                                            background: isSelected ? '#f0fdfa' : 'transparent',
+                                            border: isSelected ? '1.5px solid #14b8a6' : '1.5px solid transparent',
+                                            marginBottom: 2,
+                                        }}
+                                        onMouseEnter={e => {
+                                            if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = '#f1f5f9';
+                                        }}
+                                        onMouseLeave={e => {
+                                            if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            background: isSelected ? '#14b8a6' : '#e2e8f0',
+                                            transition: 'all 0.15s'
+                                        }}>
+                                            {isSelected && <Check size={12} color="white" strokeWidth={3} />}
+                                        </div>
+                                        <span style={{
+                                            fontFamily: 'monospace', fontSize: 12, color: '#475569',
+                                            letterSpacing: '0.5px'
+                                        }}>
+                                            Key {index + 1}: {maskApiKey(presetKey)}
+                                        </span>
                                     </div>
-                                    <span style={{
-                                        fontFamily: 'monospace', fontSize: 12, color: '#475569',
-                                        letterSpacing: '0.5px'
-                                    }}>
-                                        Key {index + 1}: {maskApiKey(presetKey)}
-                                    </span>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
                     </div>
-                </div>
+                )}
 
                 {/* Hoặc nhập API Key thủ công */}
                 <div style={{ marginBottom: 20 }}>

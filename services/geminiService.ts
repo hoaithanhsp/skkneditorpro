@@ -6,13 +6,11 @@ import { buildKnowledgeContext, SCORING_CRITERIA, CLICHE_PHRASES, COMPARISON_TAB
 const STORAGE_KEY_API = 'skkn_editor_api_key';
 const STORAGE_KEY_MODEL = 'skkn_editor_model';
 
-// --- Fallback API Keys (tự động chuyển khi key hết quota) ---
-const FALLBACK_API_KEYS: string[] = [
-  'AIzaSyBOuT03aNFvn14FMjHcG5sfTXRzKrPwJVo',
-  'AIzaSyCtLFg1DviJHvMaDeYtp0r_yiZ1eST7AOE',
-  'AIzaSyB4YLqOkzfd7xEliQSarXJAhi1Rll2zoFs',
-  'AIzaSyBsCkGTO9PkX2le8lJuNpTA9pUwKPREQWs',
-];
+// --- Fallback API Keys (đọc từ biến môi trường, tự động chuyển khi key hết quota) ---
+const FALLBACK_API_KEYS: string[] = (process.env.VITE_GEMINI_API_KEYS || '')
+  .split(',')
+  .map(k => k.trim())
+  .filter(k => k.length > 0);
 
 const exhaustedKeys = new Set<string>(); // Track các key đã hết quota trong session này
 
