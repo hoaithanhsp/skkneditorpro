@@ -18,6 +18,11 @@ export const getApiKey = (): string | null => {
   return localStorage.getItem(STORAGE_KEY_API);
 };
 
+// Kiểm tra có ÍT NHẤT 1 key khả dụng (user key hoặc env key)
+export const hasAnyApiKey = (): boolean => {
+  return !!getApiKey() || FALLBACK_API_KEYS.length > 0;
+};
+
 export const setApiKey = (key: string): void => {
   localStorage.setItem(STORAGE_KEY_API, key);
 };
@@ -127,8 +132,8 @@ const repairJSON = (text: string): any => {
 
 // --- Fallback with retry on 429 + API key rotation ---
 const callWithFallback = async (fn: (model: string, ai: GoogleGenAI) => Promise<any>, timeoutMs: number = 90000): Promise<any> => {
-  // Kiểm tra user có API key không (bắt buộc phải nhập ít nhất 1 lần)
-  if (!getApiKey()) throw new Error("API_KEY_MISSING");
+  // Kiểm tra có ít nhất 1 key khả dụng (user key hoặc env key)
+  if (!hasAnyApiKey()) throw new Error("API_KEY_MISSING");
 
   const availableKeys = getAllAvailableKeys();
   let lastError: any = null;
