@@ -364,14 +364,14 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     customInstructions: ''
   });
 
-  // Check API key on mount
+  // Check API key on mount - chỉ hiện modal khi không có key nào (cả user và env)
   useEffect(() => {
-    if (!geminiService.getApiKey()) {
+    if (!geminiService.hasAnyApiKey()) {
       setShowApiModal(true);
     }
   }, []);
 
-  const hasApiKey = !!geminiService.getApiKey();
+  const hasApiKey = geminiService.hasAnyApiKey();
 
   // Toast helper
   const addToast = useCallback((type: ToastMessage['type'], message: string) => {
@@ -451,7 +451,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
 
   // --- Handlers ---
   const handleUpload = async (text: string, fileName: string) => {
-    if (!geminiService.getApiKey()) {
+    if (!geminiService.hasAnyApiKey()) {
       setShowApiModal(true);
       return;
     }
