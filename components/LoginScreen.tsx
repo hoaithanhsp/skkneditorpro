@@ -97,7 +97,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                         SKKN Editor Pro
                     </h1>
                     <p style={{ fontSize: 13, color: '#64748b' }}>
-                        Nhập tài khoản bất kỳ & Mật khẩu: SKKN100
+                        Nhập tài khoản & Mật khẩu
                     </p>
                 </div>
 
@@ -220,3 +220,4 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 };
 
 export default LoginScreen;
+
