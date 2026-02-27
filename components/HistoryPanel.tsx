@@ -1,6 +1,7 @@
 import React from 'react';
 import { HistoryEntry } from '../types';
 import * as historyService from '../services/historyService';
+import * as sessionService from '../services/sessionService';
 import { Clock, FileText, Trash2, X, Download, ArrowRight } from 'lucide-react';
 
 interface HistoryPanelProps {
@@ -29,6 +30,11 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, onLoad }) 
     const handleClearAll = () => {
         historyService.clearAllSessions();
         setSessions([]);
+    };
+
+    const handleExportEntry = (entry: HistoryEntry, e: React.MouseEvent) => {
+        e.stopPropagation();
+        sessionService.exportHistoryEntry(entry.data, entry.maxReachedStep);
     };
 
     const formatDate = (ts: number) => {
@@ -124,7 +130,19 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, onLoad }) 
                                     </div>
 
                                     {/* Actions */}
-                                    <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
+                                    <div style={{ display: 'flex', gap: 4, marginLeft: 8 }}>
+                                        <button
+                                            onClick={(e) => handleExportEntry(entry, e)}
+                                            style={{
+                                                background: 'none', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8,
+                                                color: '#94a3b8', transition: 'all 0.2s'
+                                            }}
+                                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#0d9488'; (e.currentTarget as HTMLElement).style.background = '#f0fdfa'; }}
+                                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#94a3b8'; (e.currentTarget as HTMLElement).style.background = 'none'; }}
+                                            title="Xuất ra file JSON"
+                                        >
+                                            <Download size={14} />
+                                        </button>
                                         <button
                                             onClick={(e) => handleDelete(entry.id, e)}
                                             style={{

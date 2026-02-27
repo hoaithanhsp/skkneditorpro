@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Key, ExternalLink, Zap, Crown, X, Check } from 'lucide-react';
+import { Key, ExternalLink, Zap, Crown, X, Check, AlertTriangle, Save } from 'lucide-react';
 import { AI_MODELS, AIModelId } from '../types';
 import { getApiKey, setApiKey, getSelectedModel, setSelectedModel } from '../services/geminiService';
 
@@ -20,9 +20,11 @@ interface ApiKeyModalProps {
     onClose: () => void;
     onSave: () => void;
     canClose?: boolean;
+    quotaExhausted?: boolean;
+    onExportSession?: () => void;
 }
 
-const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSave, canClose = true }) => {
+const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSave, canClose = true, quotaExhausted = false, onExportSession }) => {
     const [key, setKey] = useState(getApiKey() || '');
     const [selectedModelId, setSelectedModelId] = useState<AIModelId>(getSelectedModel());
     const [error, setError] = useState('');
@@ -76,6 +78,44 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSave, canC
                         </button>
                     )}
                 </div>
+
+                {/* Cảnh báo hết quota */}
+                {quotaExhausted && (
+                    <div style={{
+                        background: 'linear-gradient(135deg, #fffbeb, #fef3c7)',
+                        border: '1.5px solid #f59e0b',
+                        borderRadius: 14,
+                        padding: '14px 16px',
+                        marginBottom: 20,
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <AlertTriangle size={18} color="#d97706" />
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#92400e' }}>
+                                API Key hiện tại đã hết quota!
+                            </span>
+                        </div>
+                        <p style={{ fontSize: 12, color: '#78350f', margin: '0 0 10px 0', lineHeight: 1.5 }}>
+                            Bạn nên <strong>lưu phiên làm việc</strong> ra file trước, sau đó nhập API key mới để tiếp tục.
+                        </p>
+                        {onExportSession && (
+                            <button
+                                onClick={onExportSession}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '8px 16px', borderRadius: 10,
+                                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                    color: 'white', border: 'none', cursor: 'pointer',
+                                    fontSize: 13, fontWeight: 700,
+                                    boxShadow: '0 2px 0 #b45309, 0 4px 12px rgba(245, 158, 11, 0.3)',
+                                    transition: 'all 0.15s'
+                                }}
+                            >
+                                <Save size={14} />
+                                Lưu phiên làm việc ngay
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 {/* Chọn API Key có sẵn - chỉ hiện khi có keys trong env */}
                 {PRESET_API_KEYS.length > 0 && (

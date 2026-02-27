@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppStep, SKKNData, SectionContent, TitleSuggestion, ToastMessage, HistoryEntry, UserRequirements } from './types';
 import { STEP_LABELS } from './constants';
 import * as geminiService from './services/geminiService';
@@ -12,8 +12,9 @@ import StepQuickEdit from './components/StepQuickEdit';
 import ApiKeyModal from './components/ApiKeyModal';
 import HistoryPanel from './components/HistoryPanel';
 import ShortenSKKN from './components/ShortenSKKN';
+import * as sessionService from './services/sessionService';
 import LoginScreen from './components/LoginScreen';
-import { Settings, Check, Key, AlertCircle, Clock, Scissors, LogOut } from 'lucide-react';
+import { Settings, Check, Key, AlertCircle, Clock, Scissors, LogOut, Save, FolderOpen } from 'lucide-react';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } from 'docx';
 import { saveAs } from 'file-saver';
 
@@ -338,6 +339,9 @@ interface AppContentProps {
   onLogout: () => void;
 }
 
+// --- LocalStorage key cho lưu/khôi phục phiên làm việc ---
+const LOCAL_SESSION_KEY = 'skkn_editor_session';
+
 const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   const [currentStep, setCurrentStep] = useState<AppStep>(AppStep.UPLOAD);
   const [maxReachedStep, setMaxReachedStep] = useState<number>(0);
@@ -355,6 +359,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   const [analysisStage, setAnalysisStage] = useState('');
   const [processingSectionId, setProcessingSectionId] = useState<string | null>(null);
   const [showApiModal, setShowApiModal] = useState(false);
+  const [quotaExhausted, setQuotaExhausted] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showShortenMode, setShowShortenMode] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -364,10 +369,33 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     customInstructions: ''
   });
 
+  // Session restore state
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [sessionSavedAt, setSessionSavedAt] = useState<string | null>(null);
+  const sessionRestoreChecked = useRef(false);
+
   // Check API key on mount - chỉ hiện modal khi không có key nào (cả user và env)
   useEffect(() => {
     if (!geminiService.hasAnyApiKey()) {
       setShowApiModal(true);
+    }
+  }, []);
+
+  // Kiểm tra phiên đã lưu khi mở app
+  useEffect(() => {
+    if (sessionRestoreChecked.current) return;
+    sessionRestoreChecked.current = true;
+    try {
+      const saved = localStorage.getItem(LOCAL_SESSION_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.data && parsed.data.sections && parsed.data.sections.length > 0) {
+          setShowRestoreModal(true);
+        }
+      }
+    } catch (e) {
+      console.warn('Không thể đọc phiên đã lưu:', e);
+      localStorage.removeItem(LOCAL_SESSION_KEY);
     }
   }, []);
 
@@ -422,10 +450,9 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     setMaxReachedStep(prev => Math.max(prev, step));
   };
 
-  // --- Auto-save to history ---
+  // --- Auto-save to history (trimmed) ---
   const autoSave = useCallback(() => {
     if (data.originalText && data.fileName) {
-      // Truncate originalText to save localStorage space (keep first 2000 chars for preview)
       const trimmedData = {
         ...data,
         originalText: data.originalText.substring(0, 2000)
@@ -434,12 +461,60 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     }
   }, [data, maxReachedStep]);
 
+  // --- Auto-save phiên đầy đủ vào localStorage (không cắt dữ liệu) ---
+  const autoSaveFullSession = useCallback(() => {
+    if (!data.fileName && data.sections.length === 0) return;
+    if (isProcessing) return;
+    try {
+      const sessionData = {
+        data,
+        currentStep,
+        maxReachedStep,
+        userRequirements,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(sessionData));
+      setSessionSavedAt(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+    } catch (e) {
+      console.warn('Không thể lưu phiên (dữ liệu quá lớn):', e);
+    }
+  }, [data, currentStep, maxReachedStep, userRequirements, isProcessing]);
+
   // --- Periodic auto-save every 30s ---
   useEffect(() => {
-    if (!data.originalText || !data.fileName) return;
-    const interval = setInterval(autoSave, 30000);
+    if (!data.originalText && data.sections.length === 0) return;
+    const interval = setInterval(() => {
+      autoSave();
+      autoSaveFullSession();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [autoSave, data.originalText, data.fileName]);
+  }, [autoSave, autoSaveFullSession, data.originalText, data.sections.length]);
+
+  // --- Khôi phục phiên từ localStorage ---
+  const handleRestoreSession = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_SESSION_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      setData(parsed.data);
+      setCurrentStep(parsed.currentStep ?? AppStep.UPLOAD);
+      setMaxReachedStep(parsed.maxReachedStep ?? 0);
+      if (parsed.userRequirements) setUserRequirements(parsed.userRequirements);
+      setShowRestoreModal(false);
+      addToast('success', `✅ Đã khôi phục phiên: "${parsed.data.fileName}"`);
+    } catch (e) {
+      console.error('Lỗi khôi phục phiên:', e);
+      addToast('error', 'Không thể khôi phục phiên.');
+      localStorage.removeItem(LOCAL_SESSION_KEY);
+      setShowRestoreModal(false);
+    }
+  }, [addToast]);
+
+  // --- Xóa phiên đã lưu ---
+  const handleDismissRestore = useCallback(() => {
+    localStorage.removeItem(LOCAL_SESSION_KEY);
+    setShowRestoreModal(false);
+  }, []);
 
   // --- Load from history ---
   const handleLoadSession = (entry: HistoryEntry) => {
@@ -447,6 +522,49 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     setMaxReachedStep(entry.maxReachedStep);
     setCurrentStep(entry.maxReachedStep as AppStep);
     addToast('info', `Đã tải lại: "${entry.fileName}"`);
+  };
+
+  // --- Lưu phiên ra file JSON ---
+  const handleExportSession = () => {
+    if (!data.originalText && data.sections.length === 0) {
+      addToast('error', 'Chưa có dữ liệu để lưu. Vui lòng tải lên SKKN trước.');
+      return;
+    }
+    try {
+      sessionService.exportSession(data, currentStep, maxReachedStep, userRequirements);
+      addToast('success', '💾 Đã lưu phiên làm việc ra file!');
+    } catch (e) {
+      addToast('error', 'Lỗi khi lưu phiên.');
+    }
+  };
+
+  // --- Tải phiên từ file JSON ---
+  const handleImportSession = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const session = await sessionService.importSession(file);
+        setData(session.data);
+        setCurrentStep(session.currentStep);
+        setMaxReachedStep(session.maxReachedStep);
+        setUserRequirements(session.userRequirements);
+        addToast('success', `📂 Đã tải phiên: "${session.data.fileName}"`);
+      } catch (err: any) {
+        addToast('error', err.message || 'Lỗi khi tải phiên.');
+      }
+    };
+    input.click();
+  };
+
+  // --- Xử lý lỗi quota: hiện modal đổi key + gợi ý lưu phiên ---
+  const handleQuotaError = () => {
+    setQuotaExhausted(true);
+    setShowApiModal(true);
+    addToast('error', '⚠️ Hết quota API! Lưu phiên làm việc rồi thay API key mới.');
   };
 
   // --- Handlers ---
@@ -587,7 +705,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
       if (error.message === 'API_KEY_MISSING') {
         setShowApiModal(true);
       } else if (error.message?.includes('429') || error.message?.includes('RESOURCE_EXHAUSTED') || error.message?.includes('quota')) {
-        addToast('error', 'Hết giới hạn API (rate limit). Vui lòng đợi 1-2 phút rồi thử lại.');
+        handleQuotaError();
       } else if (error.message?.includes('Cannot parse') || error.message?.includes('JSON')) {
         addToast('error', 'AI trả về dữ liệu không hợp lệ. Vui lòng thử lại.');
       } else {
@@ -648,7 +766,11 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
         setTimeout(autoSave, 500);
       } catch (e: any) {
         console.error("Refine failed", e);
-        addToast('error', `Lỗi viết lại phần "${section.title}".`);
+        if (e.message?.includes('429') || e.message?.includes('RESOURCE_EXHAUSTED') || e.message?.includes('quota')) {
+          handleQuotaError();
+        } else {
+          addToast('error', `Lỗi viết lại phần "${section.title}".`);
+        }
       }
     }
     setProcessingSectionId(null);
@@ -680,7 +802,11 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
         setTimeout(autoSave, 500);
       } catch (e: any) {
         console.error("Refine with refs failed", e);
-        addToast('error', `Lỗi viết lại phần "${section.title}".`);
+        if (e.message?.includes('429') || e.message?.includes('RESOURCE_EXHAUSTED') || e.message?.includes('quota')) {
+          handleQuotaError();
+        } else {
+          addToast('error', `Lỗi viết lại phần "${section.title}".`);
+        }
       }
     }
     setProcessingSectionId(null);
@@ -827,6 +953,30 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
               </span>
             )}
             <button
+              onClick={handleExportSession}
+              className="btn-secondary btn-sm"
+              title="Lưu phiên làm việc ra file"
+              style={{ color: '#0d9488' }}
+            >
+              <Save size={14} />
+            </button>
+            {sessionSavedAt && (
+              <span style={{
+                fontSize: 10, color: '#94a3b8', fontWeight: 500,
+                whiteSpace: 'nowrap'
+              }}>
+                🟢 {sessionSavedAt}
+              </span>
+            )}
+            <button
+              onClick={handleImportSession}
+              className="btn-secondary btn-sm"
+              title="Tải phiên làm việc từ file"
+              style={{ color: '#7c3aed' }}
+            >
+              <FolderOpen size={14} />
+            </button>
+            <button
               onClick={() => setShowHistory(true)}
               className="btn-secondary btn-sm"
               title="Lịch sử SKKN đã phân tích"
@@ -944,12 +1094,15 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
       {/* API Key Modal */}
       <ApiKeyModal
         isOpen={showApiModal}
-        onClose={() => setShowApiModal(false)}
+        onClose={() => { setShowApiModal(false); setQuotaExhausted(false); }}
         onSave={() => {
           setShowApiModal(false);
+          setQuotaExhausted(false);
           addToast('success', 'API Key đã được lưu!');
         }}
         canClose={hasApiKey}
+        quotaExhausted={quotaExhausted}
+        onExportSession={handleExportSession}
       />
 
       {/* History Panel */}
@@ -960,6 +1113,45 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
       />
 
       {/* Toast Notifications */}
+
+      {/* Modal khôi phục phiên làm việc */}
+      {showRestoreModal && (
+        <div className="modal-overlay" style={{ zIndex: 100 }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 440, textAlign: 'center' }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: 16, margin: '0 auto 16px',
+              background: 'linear-gradient(135deg, #14b8a6, #0d9488)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 0 #0f766e, 0 6px 16px rgba(13, 148, 136, 0.25)'
+            }}>
+              <Save size={28} color="white" />
+            </div>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: '#134e4a', marginBottom: 8 }}>
+              Phiên làm việc trước chưa xong
+            </h3>
+            <p style={{ fontSize: 13, color: '#64748b', marginBottom: 20, lineHeight: 1.5 }}>
+              Bạn có một phiên làm việc chưa hoàn thành từ lần trước.
+              Bạn muốn tiếp tục hay bắt đầu lại?
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={handleDismissRestore}
+                className="btn-secondary"
+                style={{ flex: 1, justifyContent: 'center', padding: '10px 16px' }}
+              >
+                Bắt đầu mới
+              </button>
+              <button
+                onClick={handleRestoreSession}
+                className="btn-primary"
+                style={{ flex: 1, justifyContent: 'center', padding: '10px 16px' }}
+              >
+                ✅ Tiếp tục phiên cũ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {toasts.length > 0 && (
         <div className="toast-container">
           {toasts.map(toast => (
