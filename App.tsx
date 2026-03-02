@@ -308,10 +308,10 @@ const parseContentToDocxElements = (content: string, indent: number = 0): (Parag
 const App: React.FC = () => {
   // --- Authentication State ---
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return sessionStorage.getItem('skkn_logged_in') === 'true';
+    return localStorage.getItem('skkn_logged_in') === 'true';
   });
   const [displayName, setDisplayName] = useState(() => {
-    return sessionStorage.getItem('skkn_display_name') || '';
+    return localStorage.getItem('skkn_display_name') || '';
   });
 
   const handleLoginSuccess = (name: string) => {
@@ -320,8 +320,8 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem('skkn_logged_in');
-    sessionStorage.removeItem('skkn_display_name');
+    localStorage.removeItem('skkn_logged_in');
+    localStorage.removeItem('skkn_display_name');
     setIsLoggedIn(false);
     setDisplayName('');
   };
