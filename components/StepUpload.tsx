@@ -29,26 +29,33 @@ const StepUpload: React.FC<StepUploadProps> = ({ onUpload, isProcessing, progres
           setParseError('File .docx không có nội dung text. Vui lòng kiểm tra lại.');
         }
       } else if (ext === 'pdf') {
-        const pdfjsLib = await import('pdfjs-dist');
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        setParseError(null);
+        try {
+          const pdfjsLib = await import('pdfjs-dist');
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        let fullText = '';
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          let fullText = '';
 
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          const pageText = content.items
-            .map((item: any) => item.str)
-            .join(' ');
-          fullText += pageText + '\n\n';
-        }
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            const pageText = content.items
+              .map((item: any) => item.str)
+              .join(' ');
+            fullText += pageText + '\n\n';
+          }
 
-        if (fullText.trim()) {
-          onUpload(fullText, file.name);
-        } else {
-          setParseError('File .pdf không có nội dung text (có thể là file scan/ảnh). Vui lòng dùng file .docx.');
+          if (fullText.trim()) {
+            onUpload(fullText, file.name);
+          } else {
+            setParseError('File .pdf không có nội dung text (có thể là file scan/ảnh). Vui lòng chuyển sang file .docx hoặc .txt.');
+          }
+        } catch (pdfError: any) {
+          console.error('PDF parse error:', pdfError);
+          setParseError(`Lỗi đọc file PDF: ${pdfError?.message?.includes('worker') ? 'Không thể tải PDF worker. Vui lòng kiểm tra kết nối mạng hoặc thử dùng file .docx.' : (pdfError?.message || 'Không xác định. Vui lòng thử lại hoặc dùng file .docx.')}`);
+          return;
         }
       } else if (ext === 'txt') {
         const text = await file.text();

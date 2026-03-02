@@ -35,8 +35,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
                 const displayName = matched ? matched.displayName : username.trim();
 
-                sessionStorage.setItem('skkn_logged_in', 'true');
-                sessionStorage.setItem('skkn_display_name', displayName);
+                localStorage.setItem('skkn_logged_in', 'true');
+                localStorage.setItem('skkn_display_name', displayName);
                 onLoginSuccess(displayName);
             } else {
                 setError('Mật khẩu không đúng. Vui lòng thử lại.');

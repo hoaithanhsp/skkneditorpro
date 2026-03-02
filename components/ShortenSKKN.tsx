@@ -39,21 +39,27 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
                     setParseError('File .docx không có nội dung text.');
                 }
             } else if (ext === 'pdf') {
-                const pdfjsLib = await import('pdfjs-dist');
-                pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-                const arrayBuffer = await file.arrayBuffer();
-                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                let fullText = '';
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const content = await page.getTextContent();
-                    fullText += content.items.map((item: any) => item.str).join(' ') + '\n\n';
-                }
-                if (fullText.trim()) {
-                    setOriginalText(fullText);
-                    setFileName(file.name);
-                } else {
-                    setParseError('File .pdf không có nội dung text (có thể là file scan).');
+                try {
+                    const pdfjsLib = await import('pdfjs-dist');
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                    let fullText = '';
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const content = await page.getTextContent();
+                        fullText += content.items.map((item: any) => item.str).join(' ') + '\n\n';
+                    }
+                    if (fullText.trim()) {
+                        setOriginalText(fullText);
+                        setFileName(file.name);
+                    } else {
+                        setParseError('File .pdf không có nội dung text (có thể là file scan). Vui lòng chuyển sang file .docx hoặc .txt.');
+                    }
+                } catch (pdfError: any) {
+                    console.error('PDF parse error:', pdfError);
+                    setParseError(`Lỗi đọc file PDF: ${pdfError?.message?.includes('worker') ? 'Không thể tải PDF worker. Vui lòng kiểm tra kết nối mạng hoặc thử dùng file .docx.' : (pdfError?.message || 'Không xác định.')}`);
+                    return;
                 }
             } else if (ext === 'txt') {
                 const text = await file.text();
