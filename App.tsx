@@ -464,7 +464,6 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
   // --- Auto-save phiên đầy đủ vào localStorage (không cắt dữ liệu) ---
   const autoSaveFullSession = useCallback(() => {
     if (!data.fileName && data.sections.length === 0) return;
-    if (isProcessing) return;
     try {
       const sessionData = {
         data,
@@ -478,7 +477,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
     } catch (e) {
       console.warn('Không thể lưu phiên (dữ liệu quá lớn):', e);
     }
-  }, [data, currentStep, maxReachedStep, userRequirements, isProcessing]);
+  }, [data, currentStep, maxReachedStep, userRequirements]);
 
   // --- Periodic auto-save every 30s ---
   useEffect(() => {
@@ -1083,6 +1082,7 @@ const AppContent: React.FC<AppContentProps> = ({ displayName, onLogout }) => {
             userRequirements={userRequirements}
             onUpdateRequirements={setUserRequirements}
             addToast={addToast}
+            onAutoSave={autoSaveFullSession}
           />
         )}
 
