@@ -215,11 +215,11 @@ const StepQuickEdit: React.FC<StepQuickEditProps> = ({ addToast }) => {
         setBatchRunning(true);
         batchAbortRef.current = false;
         setBatchProgress({ current: 0, total: leafSections.length, label: '' });
-        addToast('info', `Bắt đầu sửa ${leafSections.length} biện pháp...`);
+        addToast('info', `Bắt đầu sửa ${leafSections.length} biện pháp (tự động lưu sau mỗi biện pháp)...`);
         let updated = [...sections];
         let ok = 0;
         for (let i = 0; i < leafSections.length; i++) {
-            if (batchAbortRef.current) { addToast('info', `Dừng sau ${ok}/${leafSections.length}.`); break; }
+            if (batchAbortRef.current) { addToast('info', `Dừng sau ${ok}/${leafSections.length}. Tiến trình đã được lưu.`); break; }
             const sec = leafSections[i];
             setBatchProgress({ current: i + 1, total: leafSections.length, label: sec.title.substring(0, 40) });
             if (sec.refinedContent) { ok++; continue; }
@@ -230,12 +230,21 @@ const StepQuickEdit: React.FC<StepQuickEditProps> = ({ addToast }) => {
                 updated = updated.map(s => s.id === sec.id ? { ...s, refinedContent: refined, editSuggestions: editSuggestions.map(es => ({ ...es, applied: true })) } : s);
                 setSections(updated);
                 ok++;
+                addToast('success', `✅ Đã sửa xong ${ok}/${leafSections.length}: "${sec.title.substring(0, 30)}..."`);
             } catch (err: any) {
-                addToast('error', `Lỗi sửa "${sec.title}": ${err?.message?.substring(0, 80) || '?'}`);
+                const errMsg = err?.message || '';
+                const isQuotaError = errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota');
+                if (isQuotaError) {
+                    addToast('error', `⚠️ Hết quota API! Đã sửa ${ok}/${leafSections.length} biện pháp. Đổi API key rồi bấm "AI Sửa Toàn Bộ" để tiếp tục.`);
+                    batchAbortRef.current = true;
+                    break;
+                } else {
+                    addToast('error', `Lỗi sửa "${sec.title}": ${errMsg.substring(0, 80) || '?'}. Đang tiếp tục...`);
+                }
             }
         }
         setBatchRunning(false);
-        if (!batchAbortRef.current) addToast('success', `Hoàn thành! Đã sửa ${ok}/${leafSections.length} biện pháp.`);
+        if (!batchAbortRef.current) addToast('success', `🎉 Hoàn thành! Đã sửa ${ok}/${leafSections.length} biện pháp.`);
     }, [sections, userRequirements, addToast]);
 
     // --- Download docx ---

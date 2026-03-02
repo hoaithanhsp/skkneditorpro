@@ -21,6 +21,7 @@ interface StepEditorProps {
   userRequirements: UserRequirements;
   onUpdateRequirements: (req: UserRequirements) => void;
   addToast: (type: 'success' | 'error' | 'info', message: string) => void;
+  onAutoSave?: () => void;
 }
 
 const ACTION_STYLES: Record<string, { label: string; icon: React.ReactNode; bg: string; color: string; border: string }> = {
@@ -41,7 +42,7 @@ const CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
 const StepEditor: React.FC<StepEditorProps> = ({
   sections, onRefineSection, onRefineSectionWithRefs, onFinish, isProcessing,
   selectedTitle, currentTitle, overallAnalysisSummary,
-  onUpdateSections, userRequirements, onUpdateRequirements, addToast
+  onUpdateSections, userRequirements, onUpdateRequirements, addToast, onAutoSave
 }) => {
   const [activeTab, setActiveTab] = useState<string>(sections[0]?.id || '');
   const [expandedSuggestion, setExpandedSuggestion] = useState<string | null>(null);
@@ -321,14 +322,14 @@ const StepEditor: React.FC<StepEditorProps> = ({
     setBatchRunning(true);
     batchAbortRef.current = false;
     setBatchProgress({ current: 0, total: leafSections.length, label: '' });
-    addToast('info', `Bắt đầu sửa ${leafSections.length} phần...`);
+    addToast('info', `Bắt đầu sửa ${leafSections.length} phần (tự động lưu sau mỗi phần)...`);
 
     let updatedSections = [...sections];
     let successCount = 0;
 
     for (let i = 0; i < leafSections.length; i++) {
       if (batchAbortRef.current) {
-        addToast('info', `Đã dừng sau ${successCount}/${leafSections.length} phần.`);
+        addToast('info', `Đã dừng sau ${successCount}/${leafSections.length} phần. Tiến trình đã được lưu tự động.`);
         break;
       }
       const sec = leafSections[i];
@@ -357,17 +358,36 @@ const StepEditor: React.FC<StepEditorProps> = ({
         );
         onUpdateSections(updatedSections);
         successCount++;
+
+        // Auto-save sau mỗi phần hoàn thành để tránh mất dữ liệu
+        if (onAutoSave) {
+          setTimeout(() => onAutoSave(), 100);
+        }
+        addToast('success', `✅ Đã sửa xong phần ${successCount}/${leafSections.length}: "${sec.title.substring(0, 30)}..." (đã lưu)`);
       } catch (err: any) {
         console.error(`Batch refine error for "${sec.title}":`, err);
-        addToast('error', `Lỗi sửa "${sec.title}": ${err?.message?.substring(0, 80) || 'Không xác định'}`);
+        const errMsg = err?.message || '';
+        const isQuotaError = errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota');
+
+        if (isQuotaError) {
+          // Hết quota → tự động dừng batch và lưu phiên
+          addToast('error', `⚠️ Hết quota API! Đã sửa ${successCount}/${leafSections.length} phần. Tiến trình đã lưu tự động. Đổi API key rồi bấm "AI Sửa Toàn Bộ" để tiếp tục.`);
+          if (onAutoSave) onAutoSave();
+          batchAbortRef.current = true;
+          break;
+        } else {
+          addToast('error', `Lỗi sửa "${sec.title}": ${errMsg.substring(0, 80) || 'Không xác định'}. Đang tiếp tục các phần còn lại...`);
+        }
       }
     }
 
     setBatchRunning(false);
+    // Lưu phiên cuối cùng
+    if (onAutoSave) onAutoSave();
     if (!batchAbortRef.current) {
-      addToast('success', `Hoàn thành! Đã sửa ${successCount}/${leafSections.length} phần.`);
+      addToast('success', `🎉 Hoàn thành! Đã sửa ${successCount}/${leafSections.length} phần. Phiên đã được lưu.`);
     }
-  }, [sections, currentTitle, selectedTitle, overallAnalysisSummary, userRequirements, onUpdateSections, addToast]);
+  }, [sections, currentTitle, selectedTitle, overallAnalysisSummary, userRequirements, onUpdateSections, addToast, onAutoSave]);
 
   const handleStopBatch = useCallback(() => {
     batchAbortRef.current = true;
