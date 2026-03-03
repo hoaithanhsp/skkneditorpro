@@ -827,7 +827,37 @@ function splitIntoSections(text: string): { title: string; content: string }[] {
   return sections;
 }
 
-// Rút ngắn 1 phần
+// Tính maxOutputTokens phù hợp với target ký tự
+// Trung bình 1 token ≈ 1.5 ký tự tiếng Việt
+function calcMaxOutputTokens(targetChars: number): number {
+  const estimated = Math.ceil(targetChars / 1.5) + 2000; // +2000 buffer
+  return Math.max(8192, Math.min(estimated, 65536));
+}
+
+// Chia section content thành các chunk nhỏ hơn nếu quá dài (>15000 ký tự)
+// để tránh prompt quá lớn chiếm hết token budget
+function splitSectionContent(content: string, maxChunkSize: number = 12000): string[] {
+  if (content.length <= maxChunkSize) return [content];
+
+  const chunks: string[] = [];
+  // Tìm điểm chia tự nhiên: dòng trống, heading con
+  const paragraphs = content.split(/\n\s*\n/);
+  let currentChunk = '';
+
+  for (const para of paragraphs) {
+    if (currentChunk.length + para.length > maxChunkSize && currentChunk.length > 0) {
+      chunks.push(currentChunk.trim());
+      currentChunk = para;
+    } else {
+      currentChunk += (currentChunk ? '\n\n' : '') + para;
+    }
+  }
+  if (currentChunk.trim()) chunks.push(currentChunk.trim());
+
+  return chunks.length > 0 ? chunks : [content];
+}
+
+// Rút ngắn 1 phần (hoặc 1 chunk của 1 phần)
 async function shortenOneSection(
   sectionContent: string,
   sectionTitle: string,
@@ -836,22 +866,48 @@ async function shortenOneSection(
   targetTotalPages: number
 ): Promise<string> {
 
+  // Nếu section quá dài, chia thành chunks và rút ngắn từng chunk
+  const MAX_SECTION_INPUT = 15000; // Giới hạn input để prompt không quá lớn
+  if (sectionContent.length > MAX_SECTION_INPUT) {
+    const chunks = splitSectionContent(sectionContent, MAX_SECTION_INPUT);
+    if (chunks.length > 1) {
+      const chunkResults: string[] = [];
+      const chunkBudget = Math.round(targetChars / chunks.length);
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkResult = await shortenOneSection(
+          chunks[i],
+          `${sectionTitle} (phần ${i + 1}/${chunks.length})`,
+          chunkBudget,
+          originalTotalChars,
+          targetTotalPages
+        );
+        chunkResults.push(chunkResult);
+      }
+      return chunkResults.join('\n\n');
+    }
+  }
+
+  const targetPagesForSection = Math.max(1, Math.round(targetChars / 2200));
+  const maxTokens = calcMaxOutputTokens(targetChars);
+
   const prompt = `
 Bạn là chuyên gia biên tập SKKN. Nhiệm vụ: VIẾT LẠI phần "${sectionTitle}" của SKKN cho ngắn gọn hơn.
 
-⚠️ YÊU CẦU BẮT BUỘC VỀ ĐỘ DÀI:
-- Phần này hiện có ${sectionContent.length.toLocaleString()} ký tự
-- Bạn PHẢI viết lại với khoảng ${targetChars.toLocaleString()} ký tự (±10%)
+⚠️ YÊU CẦU BẮT BUỘC VỀ ĐỘ DÀI (CỰC KỲ QUAN TRỌNG):
+- Phần này hiện có ${sectionContent.length.toLocaleString()} ký tự (~${Math.round(sectionContent.length / 2200)} trang)
+- Bạn PHẢI viết lại với khoảng ${targetChars.toLocaleString()} ký tự (~${targetPagesForSection} trang)
 - KHÔNG ĐƯỢC viết ngắn hơn ${Math.round(targetChars * 0.85).toLocaleString()} ký tự
 - KHÔNG ĐƯỢC viết dài hơn ${Math.round(targetChars * 1.15).toLocaleString()} ký tự
 - 1 trang A4 = 2.200 ký tự (Times New Roman 12pt)
+- ĐÂY LÀ RÚT GỌN, KHÔNG PHẢI TÓM TẮT. Phải viết ĐẦY ĐỦ NỘI DUNG, chỉ ngắn gọn hơn.
 
 QUY TẮC:
 1. GIỮ NGUYÊN tất cả tiêu đề, đề mục con
-2. Viết lại nội dung ngắn gọn hơn nhưng ĐẦY ĐỦ Ý CHÍNH
-3. Giữ: số liệu, bảng biểu, công thức toán, ví dụ hay nhất
-4. Cắt: lặp ý, giải thích thừa, trích dẫn dài, câu sáo rỗng
+2. Viết lại TOÀN BỘ nội dung ngắn gọn hơn nhưng ĐẦY ĐỦ Ý CHÍNH
+3. Giữ: số liệu, bảng biểu, công thức toán, ví dụ hay nhất, tên riêng
+4. Cắt: lặp ý, giải thích thừa, trích dẫn dài, câu sáo rỗng, phần dẫn dắt lan man
 5. KHÔNG ĐƯỢC tóm tắt — phải VIẾT LẠI đầy đủ nội dung
+6. PHẢI viết đủ ${targetChars.toLocaleString()} ký tự — nếu viết quá ngắn sẽ KHÔNG ĐẠT yêu cầu
 
 ĐỊNH DẠNG: Markdown. KHÔNG ghi chú thích. Bắt đầu viết NGAY:
 
@@ -866,11 +922,11 @@ ${sectionContent}
       contents: prompt,
       config: {
         temperature: 0.2,
-        maxOutputTokens: 16384,
+        maxOutputTokens: maxTokens,
       },
     });
     return response.text || "";
-  });
+  }, 180000); // Tăng timeout lên 3 phút cho section lớn
 }
 
 export const shortenSKKN = async (
@@ -923,5 +979,64 @@ export const shortenSKKN = async (
 
   // Bước 4: Ghép kết quả
   onProgress?.('Đang hoàn thiện...');
-  return results.join('\n\n---\n\n');
+  let combined = results.join('\n\n---\n\n');
+
+  // Bước 5: Kiểm tra kết quả - nếu quá ngắn so với target, rút gọn lại
+  const resultPages = Math.round(combined.length / CHARS_PER_PAGE);
+  const minAcceptablePages = Math.round(targetPages * 0.7); // Chấp nhận tối thiểu 70% target
+
+  if (resultPages < minAcceptablePages && resultPages < targetPages) {
+    onProgress?.(`Kết quả (${resultPages} trang) chưa đạt yêu cầu (${targetPages} trang). Đang bổ sung nội dung...`);
+
+    // Tìm các phần bị rút quá ngắn và yêu cầu AI mở rộng
+    const shortage = totalCharBudget - combined.length;
+    if (shortage > CHARS_PER_PAGE) {
+      // Gọi AI mở rộng kết quả hiện tại
+      const expandPrompt = `
+Bạn là chuyên gia biên tập SKKN. Văn bản dưới đây là SKKN đã được rút ngắn nhưng CÒN QUÁ NGẮN.
+
+⚠️ YÊU CẦU: Mở rộng văn bản này lên khoảng ${totalCharBudget.toLocaleString()} ký tự (~${targetPages} trang).
+- Hiện tại: ${combined.length.toLocaleString()} ký tự (~${resultPages} trang)
+- Cần thêm: ~${shortage.toLocaleString()} ký tự (~${Math.round(shortage / CHARS_PER_PAGE)} trang)
+
+QUY TẮC:
+1. GIỮ NGUYÊN tất cả nội dung hiện có
+2. MỞ RỘNG các ý chính: thêm giải thích, dẫn chứng, ví dụ minh họa
+3. KHÔNG thêm nội dung mới không liên quan
+4. KHÔNG lặp lại ý đã có
+5. Viết với giọng văn khoa học, phù hợp SKKN
+
+===== VĂN BẢN CẦN MỞ RỘNG =====
+${combined}
+===== HẾT =====
+`;
+
+      const expandedMaxTokens = calcMaxOutputTokens(totalCharBudget);
+      try {
+        const expanded = await callWithFallback(async (model: string, ai: any) => {
+          const response = await ai.models.generateContent({
+            model,
+            contents: expandPrompt,
+            config: {
+              temperature: 0.3,
+              maxOutputTokens: expandedMaxTokens,
+            },
+          });
+          return response.text || "";
+        }, 180000);
+
+        // Chỉ dùng kết quả mở rộng nếu nó dài hơn kết quả hiện tại
+        if (expanded.length > combined.length * 1.1) {
+          combined = expanded;
+        }
+      } catch (err) {
+        console.warn('Expand pass failed, using original shortened result:', err);
+      }
+    }
+  }
+
+  const finalPages = Math.round(combined.length / CHARS_PER_PAGE);
+  onProgress?.(`Hoàn thành! Kết quả: ~${finalPages} trang (mục tiêu: ${targetPages} trang)`);
+
+  return combined;
 };
