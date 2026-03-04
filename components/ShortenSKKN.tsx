@@ -209,6 +209,14 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
 
     // --- Processing state ---
     if (isProcessing) {
+        // Xác định bước hiện tại dựa trên progressMsg
+        const currentStep = progressMsg.includes('Bước 1') ? 1
+            : progressMsg.includes('Bước 2') ? 2
+                : progressMsg.includes('Bước 3') ? 3
+                    : progressMsg.includes('Bước 4') ? 4
+                        : 0;
+        const progressPercent = currentStep === 0 ? 10 : currentStep === 1 ? 15 : currentStep === 2 ? 30 : currentStep === 3 ? 60 : 90;
+
         return (
             <div className="shorten-panel animate-fade-in">
                 <div style={{
@@ -226,11 +234,35 @@ const ShortenSKKN: React.FC<ShortenSKKNProps> = ({ onClose }) => {
                     <h3 style={{ fontSize: 20, fontWeight: 700, color: '#92400e' }}>
                         Đang rút ngắn SKKN...
                     </h3>
-                    <p style={{ color: '#64748b', fontSize: 14, textAlign: 'center', maxWidth: 420 }}>
+                    <p style={{ color: '#64748b', fontSize: 14, textAlign: 'center', maxWidth: 480, lineHeight: 1.6 }}>
                         {progressMsg || `AI đang phân tích cấu trúc và rút ngắn từ ~${estimatedOriginalPages} trang xuống ${targetPages} trang. Quá trình này có thể mất 2-5 phút.`}
                     </p>
-                    <div className="progress-bar" style={{ width: 240, marginTop: 8 }}>
-                        <div className="progress-bar-fill primary animate-shimmer" style={{ width: '45%' }}></div>
+
+                    {/* Step indicators */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                        {['Tách cấu trúc', 'Phân tích AI', 'Rút ngắn', 'Hoàn thiện'].map((label, idx) => (
+                            <div key={idx} style={{
+                                display: 'flex', alignItems: 'center', gap: 4, fontSize: 11,
+                                color: currentStep > idx + 1 ? '#16a34a' : currentStep === idx + 1 ? '#d97706' : '#94a3b8',
+                                fontWeight: currentStep === idx + 1 ? 700 : 400,
+                            }}>
+                                <div style={{
+                                    width: 18, height: 18, borderRadius: '50%', fontSize: 10,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    background: currentStep > idx + 1 ? '#dcfce7' : currentStep === idx + 1 ? '#fef3c7' : '#f1f5f9',
+                                    border: `1.5px solid ${currentStep > idx + 1 ? '#16a34a' : currentStep === idx + 1 ? '#d97706' : '#cbd5e1'}`,
+                                }}>
+                                    {currentStep > idx + 1 ? '✓' : idx + 1}
+                                </div>
+                                {label}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="progress-bar" style={{ width: 300, marginTop: 8 }}>
+                        <div className="progress-bar-fill primary animate-shimmer" style={{
+                            width: `${progressPercent}%`, transition: 'width 0.5s ease'
+                        }}></div>
                     </div>
                 </div>
             </div>
